@@ -27,6 +27,7 @@ const InputControl = ({
 }) => {
   console.log("InputControl rendered with:", { input, value }); // Debug log
 
+  // Handle combo widget first
   if (input.widget === "combo") {
     return (
       <select 
@@ -43,8 +44,25 @@ const InputControl = ({
     );
   }
 
-  // Convert type to lowercase for consistent comparison
-  const inputType = input.type.toLowerCase();
+  // Handle case where type is an array (like for LoRA options)
+  if (Array.isArray(input.type)) {
+    return (
+      <select 
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className="p-2 border rounded w-full"
+      >
+        {input.type.map((option: string) => (
+          <option key={option} value={option}>
+            {option}
+          </option>
+        ))}
+      </select>
+    );
+  }
+
+  // Only try to process type if it's actually a string
+  const inputType = typeof input.type === 'string' ? input.type.toLowerCase() : '';
 
   switch (inputType) {
     case "boolean":
@@ -80,7 +98,7 @@ const InputControl = ({
         />
       );
     default:
-      console.warn(`Unhandled input type: ${input.type}`); // Debug log
+      console.warn(`Unhandled input type:`, input.type); // Debug log
       return (
         <input
           type="text"
@@ -146,25 +164,28 @@ export const ControlPanel = () => {
     let isValidValue = true;
     let processedValue: any = value;
 
-    // Validate and process value based on type
-    switch (currentInput.type) {
-      case 'number':
-        isValidValue = /^-?\d*\.?\d*$/.test(value);
-        processedValue = parseFloat(value);
-        break;
-      case 'boolean':
-        processedValue = value === 'true';
-        break;
-      case 'string':
-        processedValue = value;
-        break;
-      default:
-        if (currentInput.widget === 'combo') {
+    // Handle combo widget first
+    if (currentInput.widget === 'combo') {
+      processedValue = value;
+      isValidValue = Array.isArray(currentInput.value) && currentInput.value.includes(value);
+    } else {
+      // Validate and process value based on type
+      const inputType = typeof currentInput.type === 'string' ? currentInput.type.toLowerCase() : '';
+      switch (inputType) {
+        case 'number':
+          isValidValue = /^-?\d*\.?\d*$/.test(value);
+          processedValue = parseFloat(value);
+          break;
+        case 'boolean':
+          processedValue = value === 'true';
+          break;
+        case 'string':
           processedValue = value;
-        } else {
+          break;
+        default:
           isValidValue = true;
           processedValue = value;
-        }
+      }
     }
     
     const hasRequiredFields = nodeId.trim() !== "" && fieldName.trim() !== "";
@@ -186,12 +207,18 @@ export const ControlPanel = () => {
 
   // Modified to handle initial values better
   const getInitialValue = (input: InputInfo): string => {
-    if (input.type.toLowerCase() === "boolean") {
-      return (!!input.value).toString();
-    }
+    // Handle combo widgets first
     if (input.widget === "combo" && Array.isArray(input.value)) {
       return input.value[0]?.toString() || "";
     }
+
+    // Check if type is a string before using toLowerCase
+    const inputType = typeof input.type === 'string' ? input.type.toLowerCase() : '';
+    
+    if (inputType === "boolean") {
+      return (!!input.value).toString();
+    }
+    
     return input.value?.toString() || "0";
   };
 
@@ -235,11 +262,18 @@ export const ControlPanel = () => {
       >
         <option value="">Select Field</option>
         {nodeId && availableNodes[nodeId]?.inputs && 
-          Object.entries(availableNodes[nodeId].inputs).map(([field, info]) => (
-            <option key={field} value={field}>
-              {field} ({info.type}{info.widget ? ` - ${info.widget}` : ''})
-            </option>
-          ))
+          Object.entries(availableNodes[nodeId].inputs).map(([field, info]) => {
+            // Format the display text based on whether it's a combo widget or not
+            const displayType = info.widget === 'combo' 
+              ? 'combo'
+              : info.type;
+            
+            return (
+              <option key={field} value={field}>
+                {field} ({displayType})
+              </option>
+            );
+          })
         }
       </select>
 
