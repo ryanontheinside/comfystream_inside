@@ -1,11 +1,12 @@
 "use client";
 
 import React, { useState } from "react";
-import { ControlPanel } from "./control-panel";
+import { ComfyNodePanel } from "./comfy-node-panel";
 import { Button } from "./ui/button";
+import { Plus } from "lucide-react";
 
 export const ControlPanelsContainer = () => {
-  const [panels, setPanels] = useState<number[]>([0]); // Start with one panel
+  const [panels, setPanels] = useState<number[]>([0]);
   const [nextPanelId, setNextPanelId] = useState(1);
 
   const addPanel = () => {
@@ -19,29 +20,28 @@ export const ControlPanelsContainer = () => {
 
   return (
     <section className="w-full p-4">
-      <div className="mb-4">
+      <div className="mb-4 flex justify-center">
         <Button 
           onClick={addPanel}
-          className="w-full max-w-xs mx-auto bg-blue-500 hover:bg-blue-600 text-white"
+          className="bg-[#444] hover:bg-[#555] text-white flex items-center gap-2"
         >
-          + Add New Control Panel
+          <Plus size={16} />
+          Add New Node Panel
         </Button>
       </div>
       
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
         {panels.map((id) => (
-          <div key={id} className="border rounded-lg bg-white">
-            <div className="flex justify-between items-center p-2 border-b">
-              <span className="font-medium">Control Panel {id + 1}</span>
-              <Button
-                onClick={() => removePanel(id)}
-                variant="destructive"
-                size="sm"
-              >
-                Remove
-              </Button>
-            </div>
-            <ControlPanel />
+          <div key={id} className="relative group">
+            <Button
+              onClick={() => removePanel(id)}
+              variant="destructive"
+              size="sm"
+              className="absolute -top-2 -right-2 z-10 opacity-0 group-hover:opacity-100 transition-opacity"
+            >
+              ×
+            </Button>
+            <ComfyNodePanel panelId={id} />
           </div>
         ))}
       </div>

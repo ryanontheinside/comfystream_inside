@@ -2,7 +2,7 @@
 
 import React, { useState, useEffect } from "react";
 import { usePeerContext } from "@/context/peer-context";
-import { ChevronDown, ChevronRight } from "lucide-react"; // Assuming you use lucide-react for icons
+import { ChevronDown, ChevronRight, ChevronsUpDown } from "lucide-react"; // Assuming you use lucide-react for icons
 
 interface InputInfo {
   value: any;
@@ -130,12 +130,17 @@ const NodeInput = ({
   );
 };
 
-export const ComfyNodePanel = () => {
+interface ComfyNodePanelProps {
+  panelId: number;
+}
+
+export const ComfyNodePanel = ({ panelId }: ComfyNodePanelProps) => {
   const { controlChannel } = usePeerContext();
   const [selectedNode, setSelectedNode] = useState("");
   const [nodeValues, setNodeValues] = useState<Record<string, string>>({});
   const [availableNodes, setAvailableNodes] = useState<Record<string, NodeInfo>>({});
   const [isCollapsed, setIsCollapsed] = useState(false);
+  const [isSelectingNode, setIsSelectingNode] = useState(false);
   const [isAutoUpdateEnabled, setIsAutoUpdateEnabled] = useState(true);
 
   // Fetch available nodes
@@ -185,7 +190,13 @@ export const ComfyNodePanel = () => {
     }
   };
 
-  if (!selectedNode || Object.keys(availableNodes).length === 0) {
+  const handleNodeSelect = (nodeId: string) => {
+    setSelectedNode(nodeId);
+    initializeNodeValues(nodeId, availableNodes[nodeId]);
+    setIsSelectingNode(false);
+  };
+
+  if (Object.keys(availableNodes).length === 0) {
     return null;
   }
 
@@ -194,16 +205,50 @@ export const ComfyNodePanel = () => {
   return (
     <div className="bg-[#2b2b2b] rounded-lg overflow-hidden shadow-lg w-[300px]">
       {/* Node Header */}
-      <div className="bg-[#444] p-2 flex items-center justify-between cursor-pointer"
-           onClick={() => setIsCollapsed(!isCollapsed)}>
-        <div className="flex items-center gap-2">
-          {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
-          <h3 className="text-white font-medium">{currentNode.class_type}</h3>
+      <div className="bg-[#444] p-2 flex flex-col gap-2">
+        {/* Top row with collapse and node selection */}
+        <div className="flex items-center justify-between">
+          <div className="flex items-center gap-2">
+            <button 
+              onClick={(e) => {
+                e.stopPropagation();
+                setIsCollapsed(!isCollapsed);
+              }}
+              className="hover:bg-[#555] rounded p-1"
+            >
+              {isCollapsed ? <ChevronRight size={16} /> : <ChevronDown size={16} />}
+            </button>
+            <div 
+              className="flex items-center gap-2 cursor-pointer hover:bg-[#555] rounded px-2 py-1"
+              onClick={() => setIsSelectingNode(!isSelectingNode)}
+            >
+              <h3 className="text-white font-medium">
+                {currentNode ? currentNode.class_type : "Select Node"}
+              </h3>
+              <ChevronsUpDown size={14} className="text-gray-400" />
+            </div>
+          </div>
         </div>
+
+        {/* Node Selection Dropdown */}
+        {isSelectingNode && (
+          <div className="absolute z-10 mt-8 w-[calc(100%-1rem)] bg-[#333] border border-[#555] rounded-md shadow-lg max-h-[300px] overflow-y-auto">
+            {Object.entries(availableNodes).map(([nodeId, info]) => (
+              <div
+                key={nodeId}
+                className="px-3 py-2 hover:bg-[#444] cursor-pointer text-white text-sm"
+                onClick={() => handleNodeSelect(nodeId)}
+              >
+                <span className="font-medium">{info.class_type}</span>
+                <span className="text-gray-400 text-xs ml-2">({nodeId})</span>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
 
       {/* Node Content */}
-      {!isCollapsed && (
+      {!isCollapsed && currentNode && (
         <div className="p-2">
           {Object.entries(currentNode.inputs).map(([field, info]) => (
             <NodeInput
