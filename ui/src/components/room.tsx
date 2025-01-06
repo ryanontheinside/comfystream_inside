@@ -53,10 +53,10 @@ function Stage({ connected, onStreamReady }: StageProps) {
 
     const interval = setInterval(() => {
       if (peerConnection) {
-        peerConnection.getStats().then((stats) => {
-          stats.forEach((report) => {
+        peerConnection.getStats().then((stats: RTCStatsReport) => {
+          stats.forEach((report: RTCStats) => {
             if (report.type === "inbound-rtp" && report.kind === "video") {
-              const currentFrameRate = report.framesPerSecond;
+              const currentFrameRate = (report as any).framesPerSecond;
               if (currentFrameRate) {
                 setFrameRate(Math.round(currentFrameRate));
               }
@@ -195,7 +195,7 @@ export function Room() {
               </div>
             </div>
 
-            {isConnected && <ControlPanelsContainer />}
+            {isConnected && <ControlPanelsContainer prompt={config.prompt} />}
 
             <StreamSettings
               open={isStreamSettingsOpen}

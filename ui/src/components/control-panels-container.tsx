@@ -1,17 +1,25 @@
 "use client";
 
 import React, { useState } from "react";
-import { ControlPanel } from "./control-panel";
-import { Button } from "./ui/button";
+import { ControlPanel } from "@/components/control-panel";
+import { Button } from "@/components/ui/button";
 import {
   Drawer,
   DrawerContent,
   DrawerTitle,
-} from "./ui/drawer";
+} from "@/components/ui/drawer";
 import { Settings } from "lucide-react";
-import { Plus } from "lucide-react"; // Import Plus icon for minimal add button
+import { Plus } from "lucide-react";
 
-export const ControlPanelsContainer = () => {
+interface ControlPanelsContainerProps {
+  prompt: Record<string, {
+    inputs?: Record<string, any>;
+    class_type: string;
+    _meta?: Record<string, any>;
+  }>;
+}
+
+export const ControlPanelsContainer = ({ prompt }: ControlPanelsContainerProps) => {
   const [panels, setPanels] = useState<number[]>([0]); // Start with one panel
   const [nextPanelId, setNextPanelId] = useState(1);
   const [isOpen, setIsOpen] = useState(false);
@@ -88,7 +96,7 @@ export const ControlPanelsContainer = () => {
                         <span className="text-sm">×</span>
                       </Button>
                     </div>
-                    <ControlPanel />
+                    <ControlPanel prompt={prompt} />
                   </div>
                 ))}
               </div>

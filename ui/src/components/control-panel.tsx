@@ -16,6 +16,14 @@ interface NodeInfo {
   inputs: Record<string, InputInfo>;
 }
 
+interface ControlPanelProps {
+  prompt: Record<string, {
+    inputs?: Record<string, any>;
+    class_type: string;
+    _meta?: Record<string, any>;
+  }>;
+}
+
 const InputControl = ({ 
   input, 
   value, 
@@ -92,13 +100,14 @@ const InputControl = ({
   }
 };
 
-export const ControlPanel = () => {
+export const ControlPanel = ({ prompt: initialPrompt }: ControlPanelProps) => {
   const { controlChannel } = usePeerContext();
   const [nodeId, setNodeId] = useState("");
   const [fieldName, setFieldName] = useState("");
   const [value, setValue] = useState("0");
   const [isAutoUpdateEnabled, setIsAutoUpdateEnabled] = useState(false);
   const [availableNodes, setAvailableNodes] = useState<Record<string, NodeInfo>>({});
+  const [currentPrompt, setCurrentPrompt] = useState(initialPrompt);
 
   // Request available nodes when control channel is established
   useEffect(() => {
@@ -170,14 +179,24 @@ export const ControlPanel = () => {
     const hasRequiredFields = nodeId.trim() !== "" && fieldName.trim() !== "";
     
     if (controlChannel && isAutoUpdateEnabled && isValidValue && hasRequiredFields) {
+      // Create a new prompt with the updated value
+      const updatedPrompt = JSON.parse(JSON.stringify(currentPrompt));
+      if (!updatedPrompt[nodeId].inputs) {
+        updatedPrompt[nodeId].inputs = {};
+      }
+      updatedPrompt[nodeId].inputs[fieldName] = processedValue;
+      
+      // Update local state
+      setCurrentPrompt(updatedPrompt);
+      
+      // Send the entire updated prompt to the server
       const message = JSON.stringify({
-        node_id: nodeId,
-        field_name: fieldName,
-        value: processedValue,
+        type: "update_prompt",
+        prompt: updatedPrompt
       });
       controlChannel.send(message);
     }
-  }, [value, nodeId, fieldName, controlChannel, isAutoUpdateEnabled, availableNodes]);
+  }, [value, nodeId, fieldName, controlChannel, isAutoUpdateEnabled, availableNodes, currentPrompt]);
 
   const toggleAutoUpdate = () => {
     setIsAutoUpdateEnabled(!isAutoUpdateEnabled);

@@ -129,8 +129,9 @@ async def offer(request):
                     "nodes": nodes_info
                 }
                 control_channel.send(json.dumps(response))
-            elif all(k in params for k in ["node_id", "field_name", "value"]):
-                await pipeline.update_parameters(params)
+            elif params.get("type") == "update_prompt":
+                # Update the entire prompt
+                pipeline.set_prompt(params["prompt"])
             else:
                 logger.warning("[Server] Invalid message format - missing required fields")
         except json.JSONDecodeError:

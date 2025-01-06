@@ -21,8 +21,8 @@ class ComfyStreamClient:
         self._lock = asyncio.Lock()
 
     def set_prompt(self, prompt: PromptDictInput):
+        """Set a new prompt, replacing the existing one"""
         self.prompt = convert_prompt(prompt)
-
 
     async def update_node_input(self, node_id: str, field_name: str, value: Any):
         async with self._lock:
