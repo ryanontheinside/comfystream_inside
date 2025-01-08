@@ -117,7 +117,9 @@ async def offer(request):
     # Handle control channel from client
     @pc.on("datachannel")
     def on_datachannel(channel):
+        logger.info(f"[Server] Data channel received: {channel.label}")
         if channel.label == "control":
+            logger.info("[Server] Control channel established")
             @channel.on("message")
             async def on_message(message):
                 try:
@@ -132,6 +134,7 @@ async def offer(request):
                             "nodes": nodes_info
                         }
                         channel.send(json.dumps(response))
+                        logger.info("[Server] Sent nodes_info response")
                     elif params.get("type") == "update_prompt":
                         if "prompt" not in params:
                             logger.warning("[Control] Missing prompt in update_prompt message")

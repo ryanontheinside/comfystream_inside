@@ -89,23 +89,38 @@ export function usePeer(props: PeerProps): Peer {
 
       // Create control channel for both negotiation and control
       const channel = pc.createDataChannel("control");
+      console.log("[usePeer] Created control channel");
       
       channel.onopen = () => {
         console.log("[usePeer] Control channel opened, readyState:", channel.readyState);
         setControlChannel(channel);
+        
+        // Test the channel by sending a get_nodes request
+        try {
+          channel.send(JSON.stringify({ type: "get_nodes" }));
+          console.log("[usePeer] Sent initial get_nodes request");
+        } catch (err) {
+          console.error("[usePeer] Failed to send initial get_nodes request:", err);
+        }
       };
 
       channel.onclose = () => {
-        console.log("[usePeer] Control channel closed");
+        console.log("[usePeer] Control channel closed, readyState:", channel.readyState);
         setControlChannel(null);
       };
 
       channel.onerror = (error) => {
-        console.error("Control channel error:", error);
+        console.error("[usePeer] Control channel error:", error);
       };
 
       channel.onmessage = (event) => {
-        console.log("Received message on control channel:", event.data);
+        console.log("[usePeer] Received message on control channel:", event.data);
+        try {
+          const data = JSON.parse(event.data);
+          console.log("[usePeer] Parsed message data:", data);
+        } catch (err) {
+          console.error("[usePeer] Failed to parse message:", err);
+        }
       };
 
       pc.ontrack = (event) => {
