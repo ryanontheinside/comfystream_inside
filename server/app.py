@@ -235,11 +235,16 @@ if __name__ == "__main__":
     )
     args = parser.parse_args()
 
+    # Configure logging
     logging.basicConfig(
         level=args.log_level.upper(),
         format='%(asctime)s [%(levelname)s] %(message)s',
         datefmt='%H:%M:%S'
     )
+
+    # Suppress noisy aiortc packet logs
+    logging.getLogger('aiortc.rtcrtpreceiver').setLevel(logging.WARNING)
+    logging.getLogger('aiortc.rtcrtpsender').setLevel(logging.WARNING)
 
     app = web.Application()
     app["media_ports"] = args.media_ports.split(",") if args.media_ports else None

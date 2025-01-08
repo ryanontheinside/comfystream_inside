@@ -47,7 +47,9 @@ class ComfyStreamClient:
             try:
                 logger.info("[Client] Importing nodes from workspace")
                 from comfy.nodes.package import import_all_nodes_in_workspace
+                logger.info("Importing nodes from workspace...")
                 nodes = import_all_nodes_in_workspace()
+                logger.info(f"Found {len(nodes.NODE_CLASS_MAPPINGS)} total node types")
                 
                 # Get set of class types we need metadata for, excluding LoadTensor and SaveTensor
                 needed_class_types = {
@@ -131,6 +133,13 @@ class ComfyStreamClient:
                 
                 return nodes_info
                 
+            except ImportError as e:
+                logger.error(f"Failed to import ComfyUI nodes: {str(e)}")
+                logger.error(f"Current workspace: {self.comfy_client.config.cwd}")
+                return {}
             except Exception as e:
                 logger.error(f"Error getting node info: {str(e)}")
+                logger.error(f"Error type: {type(e)}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 return {}
