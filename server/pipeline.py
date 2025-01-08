@@ -95,6 +95,11 @@ class Pipeline:
             nodes_info = await self.client.get_available_nodes()
             logger.info(f"[Pipeline] Retrieved info for {len(nodes_info)} nodes")
             return nodes_info
+        except AttributeError as e:
+            logger.error(f"[Pipeline] Error getting nodes info - method not found: {str(e)}")
+            return {}
         except Exception as e:
             logger.error(f"[Pipeline] Error getting nodes info: {str(e)}")
-            raise
+            import traceback
+            logger.error(f"[Pipeline] Traceback: {traceback.format_exc()}")
+            return {}
