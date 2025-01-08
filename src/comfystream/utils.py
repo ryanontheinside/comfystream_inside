@@ -1,87 +1,86 @@
 import copy
-
+import logging
 from typing import Dict, Any
 from comfy.api.components.schema.prompt import Prompt, PromptDictInput
 
+logger = logging.getLogger(__name__)
 
 def create_load_tensor_node():
-    return {
+    logger.debug("[Utils] Creating LoadTensor node")
+    node = {
         "inputs": {},
         "class_type": "LoadTensor",
         "_meta": {"title": "LoadTensor"},
     }
-
+    logger.debug("[Utils] Created LoadTensor node")
+    return node
 
 def create_save_tensor_node(inputs: Dict[Any, Any]):
-    return {
+    logger.debug("[Utils] Creating SaveTensor node")
+    node = {
         "inputs": inputs,
         "class_type": "SaveTensor",
         "_meta": {"title": "SaveTensor"},
     }
-
+    logger.debug("[Utils] Created SaveTensor node")
+    return node
 
 def convert_prompt(prompt: PromptDictInput) -> Prompt:
-    # Validate the schema
-    Prompt.validate(prompt)
-
-    prompt = copy.deepcopy(prompt)
-
-    num_primary_inputs = 0
-    num_inputs = 0
-    num_outputs = 0
-
-    keys = {
-        "PrimaryInputLoadImage": [],
-        "LoadImage": [],
-        "PreviewImage": [],
-        "SaveImage": [],
-    }
-
-    for key, node in prompt.items():
-        class_type = node.get("class_type")
-
-        # Collect keys for nodes that might need to be replaced
-        if class_type in keys:
-            keys[class_type].append(key)
-
-        # Count inputs and outputs
-        if class_type == "PrimaryInputLoadImage":
-            num_primary_inputs += 1
-        elif class_type in ["LoadImage", "LoadTensor"]:
-            num_inputs += 1
-        elif class_type in ["PreviewImage", "SaveImage", "SaveTensor"]:
-            num_outputs += 1
-
-    # Only handle single primary input
-    if num_primary_inputs > 1:
-        raise Exception("too many primary inputs in prompt")
-
-    # If there are no primary inputs, only handle single input
-    if num_primary_inputs == 0 and num_inputs > 1:
-        raise Exception("too many inputs in prompt")
-
-    # Only handle single output for now
-    if num_outputs > 1:
-        raise Exception("too many outputs in prompt")
-
-    if num_primary_inputs + num_inputs == 0:
-        raise Exception("missing input")
-
-    if num_outputs == 0:
-        raise Exception("missing output")
-
-    # Replace nodes
-    for key in keys["PrimaryInputLoadImage"]:
-        prompt[key] = create_load_tensor_node()
-
-    if num_primary_inputs == 0 and len(keys["LoadImage"]) == 1:
-        prompt[keys["LoadImage"][0]] = create_load_tensor_node()
-
-    for key in keys["PreviewImage"] + keys["SaveImage"]:
-        node = prompt[key]
-        prompt[key] = create_save_tensor_node(node["inputs"])
-
-    # Validate the processed prompt input
-    prompt = Prompt.validate(prompt)
-
-    return prompt
+    """Convert a prompt to use tensor nodes for input/output."""
+    logger.info("[Utils] Starting prompt conversion")
+    try:
+        # Deep copy to avoid modifying original
+        prompt = copy.deepcopy(prompt)
+        
+        # Find primary input node
+        primary_input_node_id = None
+        primary_input_node_class = None
+        
+        logger.debug("[Utils] Searching for primary input node")
+        for node_id, node in prompt.items():
+            class_type = node.get("class_type")
+            if class_type in ("PrimaryInputLoadImage", "LoadImage"):
+                if primary_input_node_id is not None:
+                    logger.error("[Utils] Multiple primary input nodes found")
+                    raise ValueError("Multiple primary input nodes found")
+                primary_input_node_id = node_id
+                primary_input_node_class = class_type
+        
+        if primary_input_node_id is None:
+            logger.error("[Utils] No primary input node found")
+            raise ValueError("No primary input node found")
+            
+        logger.debug(f"[Utils] Found primary input node: {primary_input_node_id} ({primary_input_node_class})")
+        
+        # Find output node
+        output_node_id = None
+        output_node_inputs = None
+        
+        logger.debug("[Utils] Searching for output node")
+        for node_id, node in prompt.items():
+            class_type = node.get("class_type")
+            if class_type in ("PreviewImage", "SaveImage"):
+                if output_node_id is not None:
+                    logger.error("[Utils] Multiple output nodes found")
+                    raise ValueError("Multiple output nodes found")
+                output_node_id = node_id
+                output_node_inputs = node.get("inputs", {})
+        
+        if output_node_id is None:
+            logger.error("[Utils] No output node found")
+            raise ValueError("No output node found")
+            
+        logger.debug(f"[Utils] Found output node: {output_node_id}")
+        
+        # Replace input node with LoadTensor
+        prompt[primary_input_node_id] = create_load_tensor_node()
+        
+        # Replace output node with SaveTensor
+        prompt[output_node_id] = create_save_tensor_node(output_node_inputs)
+        
+        logger.info("[Utils] Successfully converted prompt")
+        return prompt
+        
+    except Exception as e:
+        logger.error(f"[Utils] Error converting prompt: {str(e)}")
+        raise

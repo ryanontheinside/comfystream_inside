@@ -21,6 +21,7 @@ class ComfyStreamClient:
         self._lock = asyncio.Lock()
 
     def set_prompt(self, prompt: PromptDictInput):
+        logger.info("[Client] Setting prompt")
         self.prompt = convert_prompt(prompt)
 
     async def queue_prompt(self, input: torch.Tensor) -> torch.Tensor:
@@ -40,9 +41,11 @@ class ComfyStreamClient:
         """Get metadata and available nodes info in a single pass"""
         async with self._lock:
             if not self.prompt:
+                logger.warning("[Client] No prompt set when get_available_nodes was called")
                 return {}
 
             try:
+                logger.info("[Client] Importing nodes from workspace")
                 from comfy.nodes.package import import_all_nodes_in_workspace
                 nodes = import_all_nodes_in_workspace()
                 
@@ -52,6 +55,7 @@ class ComfyStreamClient:
                     for node in self.prompt.values() 
                     if node.get('class_type') not in ('LoadTensor', 'SaveTensor')
                 }
+                logger.info(f"[Client] Found {len(needed_class_types)} needed class types")
                 remaining_nodes = {
                     node_id 
                     for node_id, node in self.prompt.items() 

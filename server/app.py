@@ -85,6 +85,7 @@ async def offer(request):
 
     params = await request.json()
 
+    logger.info("[Server] Setting initial prompt")
     pipeline.set_prompt(params["prompt"])
     await pipeline.warm()
 
@@ -123,7 +124,9 @@ async def offer(request):
                     params = json.loads(message)
                     
                     if params.get("type") == "get_nodes":
+                        logger.info("[Server] Received get_nodes request")
                         nodes_info = await pipeline.get_nodes_info()
+                        logger.info(f"[Server] Returning nodes_info with {len(nodes_info)} nodes")
                         response = {
                             "type": "nodes_info",
                             "nodes": nodes_info
