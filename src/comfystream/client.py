@@ -40,11 +40,14 @@ class ComfyStreamClient:
         """Get metadata and available nodes info in a single pass"""
         async with self._lock:
             if not self.prompt:
+                logger.warning("No prompt set when trying to get available nodes")
                 return {}
 
             try:
                 from comfy.nodes.package import import_all_nodes_in_workspace
+                logger.info("Importing nodes from workspace...")
                 nodes = import_all_nodes_in_workspace()
+                logger.info(f"Found {len(nodes.NODE_CLASS_MAPPINGS)} total node types")
                 
                 # Get set of class types we need metadata for, excluding LoadTensor and SaveTensor
                 needed_class_types = {
@@ -52,6 +55,7 @@ class ComfyStreamClient:
                     for node in self.prompt.values() 
                     if node.get('class_type') not in ('LoadTensor', 'SaveTensor')
                 }
+                logger.info(f"Looking for metadata for {len(needed_class_types)} node types: {needed_class_types}")
                 remaining_nodes = {
                     node_id 
                     for node_id, node in self.prompt.items() 
@@ -127,6 +131,13 @@ class ComfyStreamClient:
                 
                 return nodes_info
                 
+            except ImportError as e:
+                logger.error(f"Failed to import ComfyUI nodes: {str(e)}")
+                logger.error(f"Current workspace: {self.comfy_client.config.cwd}")
+                return {}
             except Exception as e:
                 logger.error(f"Error getting node info: {str(e)}")
+                logger.error(f"Error type: {type(e)}")
+                import traceback
+                logger.error(f"Traceback: {traceback.format_exc()}")
                 return {}
