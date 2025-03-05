@@ -21,6 +21,7 @@ interface MediaStreamPlayerProps {
 function MediaStreamPlayer({ stream }: MediaStreamPlayerProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [needsPlayButton, setNeedsPlayButton] = useState(false);
+  const [playAttempts, setPlayAttempts] = useState(0);
 
   useEffect(() => {
     if (!videoRef.current || !stream) return;
@@ -34,12 +35,17 @@ function MediaStreamPlayer({ stream }: MediaStreamPlayerProps) {
       try {
         // Only attempt to play if the video element exists and has a valid srcObject
         if (video && video.srcObject) {
+          console.log("[MediaStreamPlayer] Attempting autoplay...");
           await video.play();
+          console.log("[MediaStreamPlayer] Autoplay successful");
           setNeedsPlayButton(false);
+        } else {
+          console.warn("[MediaStreamPlayer] Cannot autoplay - no video or srcObject");
+          setNeedsPlayButton(true);
         }
       } catch (error) {
         // Log error but don't throw - this is likely due to browser autoplay policy
-        console.warn("Autoplay prevented:", error);
+        console.warn("[MediaStreamPlayer] Autoplay prevented:", error);
         setNeedsPlayButton(true);
       }
     };
@@ -55,12 +61,51 @@ function MediaStreamPlayer({ stream }: MediaStreamPlayerProps) {
 
   const handlePlayClick = async () => {
     try {
-      if (videoRef.current) {
-        await videoRef.current.play();
-        setNeedsPlayButton(false);
+      console.log("[MediaStreamPlayer] Play button clicked");
+      setPlayAttempts(prev => prev + 1);
+      
+      if (!videoRef.current) {
+        console.warn("[MediaStreamPlayer] No video element found");
+        return;
       }
+      
+      if (!videoRef.current.srcObject) {
+        console.warn("[MediaStreamPlayer] No srcObject on video element, re-attaching stream");
+        videoRef.current.srcObject = stream;
+      }
+
+      // Force a user interaction with the video element
+      videoRef.current.controls = true;
+      setTimeout(() => {
+        if (videoRef.current) videoRef.current.controls = false;
+      }, 50);
+      
+      console.log("[MediaStreamPlayer] Attempting to play video...");
+      const playPromise = videoRef.current.play();
+      
+      await playPromise;
+      console.log("[MediaStreamPlayer] Play successful");
+      setNeedsPlayButton(false);
     } catch (error) {
-      console.warn("Manual play failed:", error);
+      console.warn("[MediaStreamPlayer] Manual play failed:", error);
+      // If we've tried a few times with the normal approach, try a more aggressive approach
+      if (playAttempts > 2) {
+        try {
+          console.log("[MediaStreamPlayer] Trying alternative play approach...");
+          const video = videoRef.current;
+          if (video) {
+            // Try with muted first (browsers are more permissive with muted videos)
+            video.muted = true;
+            await video.play();
+            console.log("[MediaStreamPlayer] Alternative play successful (muted)");
+            // Optionally unmute after successful play
+            // video.muted = false;
+            setNeedsPlayButton(false);
+          }
+        } catch (fallbackError) {
+          console.error("[MediaStreamPlayer] All play attempts failed:", fallbackError);
+        }
+      }
     }
   };
 
@@ -70,6 +115,7 @@ function MediaStreamPlayer({ stream }: MediaStreamPlayerProps) {
         ref={videoRef}
         autoPlay
         playsInline
+        muted // Adding muted attribute to help with autoplay restrictions
         className="w-full h-full object-cover"
       />
       {needsPlayButton && (
@@ -78,7 +124,7 @@ function MediaStreamPlayer({ stream }: MediaStreamPlayerProps) {
             onClick={handlePlayClick}
             className="px-4 py-2 bg-white text-black rounded-md hover:bg-gray-200 transition-colors"
           >
-            Click to Play
+            Click to Play {playAttempts > 0 ? `(Attempt ${playAttempts})` : ""}
           </button>
         </div>
       )}

@@ -6,12 +6,19 @@ import { usePrompt } from "./settings";
 
 type InputValue = string | number | boolean;
 
+interface ControllerMapping {
+  inputIndex: number;        // Unified index for buttons or axes
+  isAxis: boolean;          // Whether this is an axis or button
+  multiplier?: number;      // For scaling inputs
+}
+
 interface InputInfo {
   value: InputValue;
   type: string;
   min?: number;
   max?: number;
   widget?: string;
+  controllerMapping?: ControllerMapping;
 }
 
 interface NodeInfo {
@@ -62,7 +69,6 @@ const InputControl = ({
     );
   }
 
-  // Convert type to lowercase for consistent comparison
   const inputType = input.type.toLowerCase();
 
   switch (inputType) {
@@ -101,7 +107,7 @@ const InputControl = ({
         />
       );
     default:
-      console.warn(`Unhandled input type: ${input.type}`); // Debug log
+      console.warn(`Unhandled input type: ${input.type}`);
       return (
         <input
           type="text"
@@ -113,6 +119,88 @@ const InputControl = ({
   }
 };
 
+const ControllerMapper = ({
+  input,
+  onMappingChange,
+}: {
+  input: InputInfo;
+  onMappingChange: (mapping: ControllerMapping) => void;
+}) => {
+  const [gamepads, setGamepads] = useState<Gamepad[]>([]);
+  const [isMapping, setIsMapping] = useState(false);
+  const [detectedInput, setDetectedInput] = useState<string>("");
+
+  useEffect(() => {
+    const updateGamepads = () => {
+      const pads = navigator.getGamepads();
+      setGamepads(Array.from(pads).filter((pad): pad is Gamepad => pad !== null));
+    };
+
+    const interval = setInterval(updateGamepads, 100);
+    window.addEventListener("gamepadconnected", updateGamepads);
+    window.removeEventListener("gamepaddisconnected", updateGamepads);
+
+    return () => {
+      clearInterval(interval);
+      window.removeEventListener("gamepadconnected", updateGamepads);
+      window.removeEventListener("gamepaddisconnected", updateGamepads);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!isMapping) return;
+
+    const checkInputs = () => {
+      const pads = navigator.getGamepads();
+      for (const pad of pads) {
+        if (!pad) continue;
+
+        // Check buttons (including analog triggers)
+        pad.buttons.forEach((button, index) => {
+          if (button.value > 0.1) {
+            setDetectedInput(`Button ${index}`);
+            onMappingChange({ inputIndex: index, isAxis: false });
+            setIsMapping(false);
+          }
+        });
+
+        // Check axes
+        pad.axes.forEach((axis, index) => {
+          if (Math.abs(axis) > 0.2) {
+            setDetectedInput(`Axis ${index}`);
+            onMappingChange({ inputIndex: index, isAxis: true, multiplier: 1 });
+            setIsMapping(false);
+          }
+        });
+      }
+    };
+
+    const interval = setInterval(checkInputs, 50);
+    return () => clearInterval(interval);
+  }, [isMapping, onMappingChange]);
+
+  return (
+    <div className="flex flex-col gap-2">
+      <button
+        onClick={() => setIsMapping(!isMapping)}
+        className={`p-2 rounded ${isMapping ? "bg-yellow-500" : "bg-blue-500"} text-white`}
+      >
+        {isMapping ? "Mapping..." : "Map Controller"}
+      </button>
+      {input.controllerMapping && (
+        <div className="text-sm">
+          Mapped to: {input.controllerMapping.isAxis 
+            ? `Axis ${input.controllerMapping.inputIndex}`
+            : `Button ${input.controllerMapping.inputIndex}`}
+        </div>
+      )}
+      {gamepads.length === 0 && (
+        <div className="text-sm text-red-500">No controllers detected</div>
+      )}
+    </div>
+  );
+};
+
 export const ControlPanel = ({
   panelState,
   onStateChange,
@@ -122,8 +210,10 @@ export const ControlPanel = ({
   const [availableNodes, setAvailableNodes] = useState<
     Record<string, NodeInfo>
   >({});
+  const [controllerValue, setControllerValue] = useState<string>("");
+  const [lastToggleValue, setLastToggleValue] = useState<string>("0");
+  const [isToggled, setIsToggled] = useState(false);
 
-  // Add ref to track last sent value and timeout
   const lastSentValueRef = React.useRef<{
     nodeId: string;
     fieldName: string;
@@ -131,7 +221,6 @@ export const ControlPanel = ({
   } | null>(null);
   const updateTimeoutRef = React.useRef<NodeJS.Timeout | null>(null);
 
-  // Cleanup function for the timeout
   useEffect(() => {
     return () => {
       if (updateTimeoutRef.current) {
@@ -140,7 +229,6 @@ export const ControlPanel = ({
     };
   }, []);
 
-  // Request available nodes when control channel is established
   useEffect(() => {
     if (controlChannel) {
       controlChannel.send(JSON.stringify({ type: "get_nodes" }));
@@ -162,6 +250,63 @@ export const ControlPanel = ({
     }
   }, [controlChannel]);
 
+  useEffect(() => {
+    const pollController = () => {
+      const pads = navigator.getGamepads();
+      const currentInput =
+        panelState.nodeId && panelState.fieldName
+          ? availableNodes[panelState.nodeId]?.inputs[panelState.fieldName]
+          : null;
+
+      if (!currentInput?.controllerMapping) return;
+
+      for (const pad of pads) {
+        if (!pad) continue;
+
+        const mapping = currentInput.controllerMapping;
+        const min = currentInput.min ?? 0;
+        const max = currentInput.max ?? 1;
+
+        if (mapping.isAxis) {
+          const rawValue = mapping.inputIndex < pad.axes.length
+            ? pad.axes[mapping.inputIndex]
+            : pad.buttons[mapping.inputIndex].value;
+
+          const normalizedValue = (rawValue + 1) / 2;
+          const scaledValue = min + (max - min) * normalizedValue;
+          const clampedValue = Math.max(min, Math.min(max, scaledValue));
+          
+          const newValue = currentInput.type.toLowerCase() === "number"
+            ? clampedValue.toFixed(2)
+            : clampedValue.toString();
+
+          if (Math.abs(parseFloat(newValue) - parseFloat(panelState.value)) > 0.01) {
+            setControllerValue(newValue);
+            handleValueChange(newValue);
+          }
+        } else {
+          const button = pad.buttons[mapping.inputIndex];
+          if (button.value > 0.1 && !isToggled) {
+            const targetValue = panelState.value !== "0" 
+              ? panelState.value 
+              : lastToggleValue !== "0" 
+                ? lastToggleValue 
+                : max.toString();
+            setIsToggled(true);
+            setLastToggleValue(targetValue);
+            handleValueChange(targetValue);
+          } else if (button.value <= 0.1 && isToggled) {
+            setIsToggled(false);
+            handleValueChange("0");
+          }
+        }
+      }
+    };
+
+    const interval = setInterval(pollController, 50);
+    return () => clearInterval(interval);
+  }, [panelState, availableNodes, isToggled, lastToggleValue]);
+
   const handleValueChange = (newValue: string) => {
     const currentInput =
       panelState.nodeId && panelState.fieldName
@@ -169,22 +314,21 @@ export const ControlPanel = ({
         : null;
 
     if (currentInput) {
-      // Validate against min/max if they exist for number types
-      if (currentInput.type === "number") {
-        const numValue = parseFloat(newValue);
-        if (!isNaN(numValue)) {
-          if (currentInput.min !== undefined && numValue < currentInput.min)
-            return;
-          if (currentInput.max !== undefined && numValue > currentInput.max)
-            return;
+      const numValue = parseFloat(newValue);
+      if (!isNaN(numValue)) {
+        const min = currentInput.min ?? 0;
+        const max = currentInput.max ?? Infinity;
+        const clampedValue = Math.max(min, Math.min(max, numValue));
+        onStateChange({ value: clampedValue.toString() });
+        if (!currentInput.controllerMapping?.isAxis) {
+          setLastToggleValue(clampedValue.toString());
         }
+      } else {
+        onStateChange({ value: newValue });
       }
     }
-
-    onStateChange({ value: newValue });
   };
 
-  // Modify the effect that sends updates with debouncing
   useEffect(() => {
     const currentInput =
       panelState.nodeId && panelState.fieldName
@@ -195,7 +339,6 @@ export const ControlPanel = ({
     let isValidValue = true;
     let processedValue: InputValue = panelState.value;
 
-    // Validate and process value based on type
     switch (currentInput.type.toLowerCase()) {
       case "number":
         isValidValue =
@@ -208,7 +351,6 @@ export const ControlPanel = ({
         processedValue = panelState.value === "true";
         break;
       case "string":
-        // String can be empty, so always valid
         processedValue = panelState.value;
         break;
       default:
@@ -224,7 +366,6 @@ export const ControlPanel = ({
     const hasRequiredFields =
       panelState.nodeId.trim() !== "" && panelState.fieldName.trim() !== "";
 
-    // Check if the value has actually changed
     const lastSent = lastSentValueRef.current;
     const hasValueChanged =
       !lastSent ||
@@ -239,17 +380,14 @@ export const ControlPanel = ({
       hasRequiredFields &&
       hasValueChanged
     ) {
-      // Clear any existing timeout
       if (updateTimeoutRef.current) {
         clearTimeout(updateTimeoutRef.current);
       }
 
-      // Set a new timeout for the update
       updateTimeoutRef.current = setTimeout(
         () => {
-          // Create updated prompt while maintaining current structure
           const currentPrompt = currentPrompts[0];
-          const updatedPrompt = JSON.parse(JSON.stringify(currentPrompt)); // Deep clone
+          const updatedPrompt = JSON.parse(JSON.stringify(currentPrompt));
           if (
             updatedPrompt[panelState.nodeId] &&
             updatedPrompt[panelState.nodeId].inputs
@@ -257,26 +395,23 @@ export const ControlPanel = ({
             updatedPrompt[panelState.nodeId].inputs[panelState.fieldName] =
               processedValue;
 
-            // Update last sent value
             lastSentValueRef.current = {
               nodeId: panelState.nodeId,
               fieldName: panelState.fieldName,
               value: processedValue,
             };
 
-            // Send the full prompt update
             const message = JSON.stringify({
               type: "update_prompts",
               prompts: [updatedPrompt],
             });
             controlChannel.send(message);
 
-            // Only update current prompt after sending
             setCurrentPrompts([updatedPrompt]);
           }
         },
-        currentInput.type.toLowerCase() === "number" ? 100 : 300,
-      ); // Shorter delay for numbers, longer for text
+        currentInput.type.toLowerCase() === "number" ? 0 : 0,
+      );
     }
   }, [
     panelState.value,
@@ -293,7 +428,6 @@ export const ControlPanel = ({
     onStateChange({ isAutoUpdateEnabled: !panelState.isAutoUpdateEnabled });
   };
 
-  // Modified to handle initial values better
   const getInitialValue = (input: InputInfo): string => {
     if (input.type.toLowerCase() === "boolean") {
       return (!!input.value).toString();
@@ -304,7 +438,6 @@ export const ControlPanel = ({
     return input.value?.toString() || "0";
   };
 
-  // Update the field selection handler
   const handleFieldSelect = (e: React.ChangeEvent<HTMLSelectElement>) => {
     const selectedField = e.target.value;
 
@@ -317,6 +450,16 @@ export const ControlPanel = ({
       });
     } else {
       onStateChange({ fieldName: selectedField });
+    }
+  };
+
+  const handleMappingChange = (mapping: ControllerMapping) => {
+    if (panelState.nodeId && panelState.fieldName) {
+      const updatedNodes = { ...availableNodes };
+      updatedNodes[panelState.nodeId].inputs[
+        panelState.fieldName
+      ].controllerMapping = mapping;
+      setAvailableNodes(updatedNodes);
     }
   };
 
@@ -374,13 +517,21 @@ export const ControlPanel = ({
         {panelState.nodeId &&
           panelState.fieldName &&
           availableNodes[panelState.nodeId]?.inputs[panelState.fieldName] && (
-            <InputControl
-              input={
-                availableNodes[panelState.nodeId].inputs[panelState.fieldName]
-              }
-              value={panelState.value}
-              onChange={handleValueChange}
-            />
+            <>
+              <InputControl
+                input={
+                  availableNodes[panelState.nodeId].inputs[panelState.fieldName]
+                }
+                value={panelState.value}
+                onChange={handleValueChange}
+              />
+              <ControllerMapper
+                input={
+                  availableNodes[panelState.nodeId].inputs[panelState.fieldName]
+                }
+                onMappingChange={handleMappingChange}
+              />
+            </>
           )}
 
         {panelState.nodeId &&
