@@ -1,11 +1,13 @@
 "use client";
 
-import React, { useState, useEffect } from "react";
+import React, { useState, useEffect, useRef } from "react";
 import { ControlPanel } from "./control-panel";
 import { Button } from "./ui/button";
 import { Drawer, DrawerContent, DrawerTitle } from "./ui/drawer";
 import { Settings } from "lucide-react";
 import { Plus } from "lucide-react"; // Import Plus icon for minimal add button
+import { usePeerContext } from "@/context/peer-context";
+import { usePrompt } from "./settings";
 
 interface ControllerMapping {
   inputIndex: number;
@@ -20,10 +22,21 @@ interface NodeMappings {
 }
 
 export const ControlPanelsContainer = () => {
+  const { controlChannel } = usePeerContext();
+  const { currentPrompts, setCurrentPrompts } = usePrompt();
   const [panels, setPanels] = useState<number[]>([0]); // Start with one panel
   const [nextPanelId, setNextPanelId] = useState(1);
   const [isOpen, setIsOpen] = useState(false);
   const [controllerMappings, setControllerMappings] = useState<NodeMappings>({});
+  const [availableNodes, setAvailableNodes] = useState<Record<string, any>>({});
+  const [isToggled, setIsToggled] = useState<Record<string, Record<string, boolean>>>({});
+  const [lastToggleValues, setLastToggleValues] = useState<Record<string, Record<string, string>>>({});
+  const lastSentValueRef = useRef<{
+    nodeId: string;
+    fieldName: string;
+    value: any;
+  } | null>(null);
+  
   const [panelStates, setPanelStates] = useState<
     Record<
       number,
@@ -53,12 +66,190 @@ export const ControlPanelsContainer = () => {
         console.error('Failed to parse saved controller mappings:', error);
       }
     }
+    
+    // Load last toggle values
+    const savedToggleValues = localStorage.getItem('lastToggleValues');
+    if (savedToggleValues) {
+      try {
+        setLastToggleValues(JSON.parse(savedToggleValues));
+      } catch (error) {
+        console.error('Failed to parse saved toggle values:', error);
+      }
+    }
   }, []);
 
   // Save controller mappings to localStorage whenever they change
   useEffect(() => {
     localStorage.setItem('controllerMappings', JSON.stringify(controllerMappings));
   }, [controllerMappings]);
+  
+  // Save last toggle values to localStorage
+  useEffect(() => {
+    localStorage.setItem('lastToggleValues', JSON.stringify(lastToggleValues));
+  }, [lastToggleValues]);
+
+  // Fetch available nodes
+  useEffect(() => {
+    if (controlChannel) {
+      controlChannel.send(JSON.stringify({ type: "get_nodes" }));
+
+      const handleMessage = (event: MessageEvent) => {
+        try {
+          const data = JSON.parse(event.data);
+          if (data.type === "nodes_info") {
+            setAvailableNodes(data.nodes);
+          }
+        } catch (error) {
+          console.error("[ControlPanelsContainer] Error parsing node info:", error);
+        }
+      };
+
+      controlChannel.addEventListener("message", handleMessage);
+      return () => {
+        controlChannel.removeEventListener("message", handleMessage);
+      };
+    }
+  }, [controlChannel]);
+
+  // Controller polling logic that runs even when the panel is closed
+  useEffect(() => {
+    const pollController = () => {
+      const pads = navigator.getGamepads();
+      
+      // For each active panel
+      Object.values(panelStates).forEach(panelState => {
+        if (!panelState.isAutoUpdateEnabled || !panelState.nodeId || !panelState.fieldName) {
+          return;
+        }
+        
+        const currentMapping = controllerMappings[panelState.nodeId]?.[panelState.fieldName];
+        const currentInput = availableNodes[panelState.nodeId]?.inputs[panelState.fieldName];
+        
+        if (!currentMapping || !currentInput) {
+          return;
+        }
+        
+        for (const pad of pads) {
+          if (!pad) continue;
+          
+          const min = currentInput.min ?? 0;
+          const max = currentInput.max ?? 1;
+          
+          if (currentMapping.isAxis) {
+            const rawValue = currentMapping.inputIndex < pad.axes.length
+              ? pad.axes[currentMapping.inputIndex]
+              : pad.buttons[currentMapping.inputIndex]?.value || 0;
+              
+            const normalizedValue = (rawValue + 1) / 2;
+            const scaledValue = min + (max - min) * normalizedValue;
+            const clampedValue = Math.max(min, Math.min(max, scaledValue));
+            
+            const newValue = currentInput.type.toLowerCase() === "number"
+              ? clampedValue.toFixed(2)
+              : clampedValue.toString();
+              
+            if (Math.abs(parseFloat(newValue) - parseFloat(panelState.value)) > 0.01) {
+              updateNodeValue(panelState.nodeId, panelState.fieldName, newValue);
+            }
+          } else {
+            // For button inputs (toggle behavior)
+            const button = pad.buttons[currentMapping.inputIndex];
+            const nodeToggledState = isToggled[panelState.nodeId]?.[panelState.fieldName] || false;
+            
+            if (button && button.value > 0.1 && !nodeToggledState) {
+              // Initialize nested objects if they don't exist
+              if (!isToggled[panelState.nodeId]) {
+                setIsToggled(prev => ({ ...prev, [panelState.nodeId]: {} }));
+              }
+              
+              if (!lastToggleValues[panelState.nodeId]) {
+                setLastToggleValues(prev => ({ ...prev, [panelState.nodeId]: {} }));
+              }
+              
+              const lastValue = lastToggleValues[panelState.nodeId]?.[panelState.fieldName] || max.toString();
+              const targetValue = panelState.value !== "0" ? panelState.value : lastValue;
+              
+              setIsToggled(prev => ({
+                ...prev,
+                [panelState.nodeId]: {
+                  ...(prev[panelState.nodeId] || {}),
+                  [panelState.fieldName]: true
+                }
+              }));
+              
+              updateNodeValue(panelState.nodeId, panelState.fieldName, targetValue);
+            } else if (button && button.value <= 0.1 && nodeToggledState) {
+              setIsToggled(prev => ({
+                ...prev,
+                [panelState.nodeId]: {
+                  ...(prev[panelState.nodeId] || {}),
+                  [panelState.fieldName]: false
+                }
+              }));
+              
+              updateNodeValue(panelState.nodeId, panelState.fieldName, "0");
+            }
+          }
+        }
+      });
+    };
+    
+    const interval = setInterval(pollController, 50);
+    return () => clearInterval(interval);
+  }, [panelStates, controllerMappings, availableNodes, isToggled, lastToggleValues, controlChannel]);
+  
+  // Function to update node value and send to server
+  const updateNodeValue = (nodeId: string, fieldName: string, value: string) => {
+    // Update panel state if this node/field is currently displayed in a panel
+    Object.entries(panelStates).forEach(([id, state]) => {
+      if (state.nodeId === nodeId && state.fieldName === fieldName) {
+        updatePanelState(parseInt(id), { value });
+      }
+    });
+    
+    // Store last toggle value if this is a button
+    const mapping = controllerMappings[nodeId]?.[fieldName];
+    if (mapping && !mapping.isAxis && value !== "0") {
+      setLastToggleValues(prev => ({
+        ...prev,
+        [nodeId]: {
+          ...(prev[nodeId] || {}),
+          [fieldName]: value
+        }
+      }));
+    }
+    
+    // Send update to server
+    if (controlChannel && currentPrompts && currentPrompts.length > 0) {
+      const currentPrompt = currentPrompts[0];
+      const updatedPrompt = JSON.parse(JSON.stringify(currentPrompt));
+      
+      if (updatedPrompt[nodeId] && updatedPrompt[nodeId].inputs) {
+        const processedValue = 
+          availableNodes[nodeId]?.inputs[fieldName]?.type.toLowerCase() === "number" 
+            ? parseFloat(value)
+            : availableNodes[nodeId]?.inputs[fieldName]?.type.toLowerCase() === "boolean"
+              ? value === "true"
+              : value;
+              
+        updatedPrompt[nodeId].inputs[fieldName] = processedValue;
+        
+        lastSentValueRef.current = {
+          nodeId,
+          fieldName,
+          value: processedValue,
+        };
+        
+        const message = JSON.stringify({
+          type: "update_prompts",
+          prompts: [updatedPrompt],
+        });
+        
+        controlChannel.send(message);
+        setCurrentPrompts([updatedPrompt]);
+      }
+    }
+  };
 
   const addPanel = () => {
     const newId = nextPanelId;

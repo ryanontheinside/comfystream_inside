@@ -228,9 +228,6 @@ export const ControlPanel = ({
   const [availableNodes, setAvailableNodes] = useState<
     Record<string, NodeInfo>
   >({});
-  const [controllerValue, setControllerValue] = useState<string>("");
-  const [lastToggleValue, setLastToggleValue] = useState<string>("0");
-  const [isToggled, setIsToggled] = useState(false);
 
   const lastSentValueRef = React.useRef<{
     nodeId: string;
@@ -268,64 +265,6 @@ export const ControlPanel = ({
     }
   }, [controlChannel]);
 
-  useEffect(() => {
-    const pollController = () => {
-      const pads = navigator.getGamepads();
-      const currentMapping = panelState.nodeId && panelState.fieldName && controllerMappings[panelState.nodeId]?.[panelState.fieldName];
-      const currentInput =
-        panelState.nodeId && panelState.fieldName
-          ? availableNodes[panelState.nodeId]?.inputs[panelState.fieldName]
-          : null;
-
-      if (!currentInput || !currentMapping) return;
-
-      for (const pad of pads) {
-        if (!pad) continue;
-
-        const mapping = currentMapping;
-        const min = currentInput.min ?? 0;
-        const max = currentInput.max ?? 1;
-
-        if (mapping.isAxis) {
-          const rawValue = mapping.inputIndex < pad.axes.length
-            ? pad.axes[mapping.inputIndex]
-            : pad.buttons[mapping.inputIndex].value;
-
-          const normalizedValue = (rawValue + 1) / 2;
-          const scaledValue = min + (max - min) * normalizedValue;
-          const clampedValue = Math.max(min, Math.min(max, scaledValue));
-          
-          const newValue = currentInput.type.toLowerCase() === "number"
-            ? clampedValue.toFixed(2)
-            : clampedValue.toString();
-
-          if (Math.abs(parseFloat(newValue) - parseFloat(panelState.value)) > 0.01) {
-            setControllerValue(newValue);
-            handleValueChange(newValue);
-          }
-        } else {
-          const button = pad.buttons[mapping.inputIndex];
-          if (button.value > 0.1 && !isToggled) {
-            const targetValue = panelState.value !== "0" 
-              ? panelState.value 
-              : lastToggleValue !== "0" 
-                ? lastToggleValue 
-                : max.toString();
-            setIsToggled(true);
-            setLastToggleValue(targetValue);
-            handleValueChange(targetValue);
-          } else if (button.value <= 0.1 && isToggled) {
-            setIsToggled(false);
-            handleValueChange("0");
-          }
-        }
-      }
-    };
-
-    const interval = setInterval(pollController, 50);
-    return () => clearInterval(interval);
-  }, [panelState, availableNodes, isToggled, lastToggleValue, controllerMappings]);
-
   const handleValueChange = (newValue: string) => {
     const currentInput =
       panelState.nodeId && panelState.fieldName
@@ -339,9 +278,6 @@ export const ControlPanel = ({
         const max = currentInput.max ?? Infinity;
         const clampedValue = Math.max(min, Math.min(max, numValue));
         onStateChange({ value: clampedValue.toString() });
-        if (!currentInput.controllerMapping?.isAxis) {
-          setLastToggleValue(clampedValue.toString());
-        }
       } else {
         onStateChange({ value: newValue });
       }
@@ -524,6 +460,7 @@ export const ControlPanel = ({
               <option key={field} value={field}>
                 {field} ({info.type}
                 {info.widget ? ` - ${info.widget}` : ""})
+                {controllerMappings[panelState.nodeId]?.[field] ? " 🎮" : ""}
               </option>
             ))}
       </select>
@@ -584,6 +521,12 @@ export const ControlPanel = ({
             : "(OFF)"
           : "(Not Connected)"}
       </button>
+      
+      {panelState.nodeId && panelState.fieldName && controllerMappings[panelState.nodeId]?.[panelState.fieldName] && (
+        <div className="text-sm text-blue-600 bg-blue-50 p-2 rounded border border-blue-200">
+          <span className="font-medium">Controller mapped:</span> This field will update even when the panel is closed.
+        </div>
+      )}
     </div>
   );
 };
