@@ -45,6 +45,10 @@ export interface StreamConfig {
   prompts?: Prompt[] | null;
   selectedVideoDeviceId: string;
   selectedAudioDeviceId: string;
+  resolution: {
+    width: number;
+    height: number;
+  };
 }
 
 interface AVDevice {
@@ -54,10 +58,14 @@ interface AVDevice {
 
 export const DEFAULT_CONFIG: StreamConfig = {
   streamUrl:
-    process.env.NEXT_PUBLIC_DEFAULT_STREAM_URL || "http://127.0.0.1:8889",
+    process.env.NEXT_PUBLIC_DEFAULT_STREAM_URL || "http://localhost:8889/",
   frameRate: 30,
   selectedVideoDeviceId: "none",
   selectedAudioDeviceId: "none",
+  resolution: {
+    width: 512,
+    height: 512
+  },
 };
 
 interface StreamSettingsProps {
@@ -113,6 +121,14 @@ export function StreamSettings({
 const formSchema = z.object({
   streamUrl: z.string().url(),
   frameRate: z.coerce.number(),
+  resolution: z.object({
+    width: z.coerce.number().refine(val => [256, 512, 768, 1024].includes(val), {
+      message: "Width must be 256, 512, 768, or 1024"
+    }),
+    height: z.coerce.number().refine(val => [256, 512, 768, 1024].includes(val), {
+      message: "Height must be 256, 512, 768, or 1024"
+    })
+  })
 });
 
 interface ConfigFormProps {
@@ -241,6 +257,7 @@ function ConfigForm({ config, onSubmit }: ConfigFormProps) {
       prompts: prompts,
       selectedVideoDeviceId: selectedVideoDevice || "none",
       selectedAudioDeviceId: selectedAudioDevice || "none",
+      resolution: values.resolution || DEFAULT_CONFIG.resolution,
     });
   };
 
@@ -321,6 +338,62 @@ function ConfigForm({ config, onSubmit }: ConfigFormProps) {
             </FormItem>
           )}
         />
+
+        <div className="grid grid-cols-2 gap-4">
+          <FormField
+            control={form.control}
+            name="resolution.width"
+            render={({ field }) => (
+              <FormItem className="mt-4">
+                <FormLabel>Width</FormLabel>
+                <FormControl>
+                  <Select
+                    value={field.value.toString()}
+                    onValueChange={(value) => field.onChange(parseInt(value))}
+                  >
+                    <Select.Trigger className="w-full">
+                      {field.value.toString()}
+                    </Select.Trigger>
+                    <Select.Content>
+                      <Select.Option value="256">256</Select.Option>
+                      <Select.Option value="512">512</Select.Option>
+                      <Select.Option value="768">768</Select.Option>
+                      <Select.Option value="1024">1024</Select.Option>
+                    </Select.Content>
+                  </Select>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="resolution.height"
+            render={({ field }) => (
+              <FormItem className="mt-4">
+                <FormLabel>Height</FormLabel>
+                <FormControl>
+                  <Select
+                    value={field.value.toString()}
+                    onValueChange={(value) => field.onChange(parseInt(value))}
+                  >
+                    <Select.Trigger className="w-full">
+                      {field.value.toString()}
+                    </Select.Trigger>
+                    <Select.Content>
+                      <Select.Option value="256">256</Select.Option>
+                      <Select.Option value="512">512</Select.Option>
+                      <Select.Option value="768">768</Select.Option>
+                      <Select.Option value="1024">1024</Select.Option>
+                    </Select.Content>
+                  </Select>
+                </FormControl>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+        </div>
 
         <div className="mt-4 mb-4">
           <Label>Camera</Label>

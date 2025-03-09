@@ -41,6 +41,16 @@ interface ControlPanelProps {
       isAutoUpdateEnabled: boolean;
     }>,
   ) => void;
+  controllerMappings?: {
+    [nodeId: string]: {
+      [fieldName: string]: ControllerMapping;
+    };
+  };
+  onMappingChange?: (
+    nodeId: string,
+    fieldName: string,
+    mapping: ControllerMapping
+  ) => void;
 }
 
 const InputControl = ({
@@ -122,9 +132,15 @@ const InputControl = ({
 const ControllerMapper = ({
   input,
   onMappingChange,
+  nodeId,
+  fieldName,
+  controllerMapping,
 }: {
   input: InputInfo;
   onMappingChange: (mapping: ControllerMapping) => void;
+  nodeId: string;
+  fieldName: string;
+  controllerMapping?: ControllerMapping;
 }) => {
   const [gamepads, setGamepads] = useState<Gamepad[]>([]);
   const [isMapping, setIsMapping] = useState(false);
@@ -187,11 +203,11 @@ const ControllerMapper = ({
       >
         {isMapping ? "Mapping..." : "Map Controller"}
       </button>
-      {input.controllerMapping && (
+      {controllerMapping && (
         <div className="text-sm">
-          Mapped to: {input.controllerMapping.isAxis 
-            ? `Axis ${input.controllerMapping.inputIndex}`
-            : `Button ${input.controllerMapping.inputIndex}`}
+          Mapped to: {controllerMapping.isAxis 
+            ? `Axis ${controllerMapping.inputIndex}`
+            : `Button ${controllerMapping.inputIndex}`}
         </div>
       )}
       {gamepads.length === 0 && (
@@ -204,6 +220,8 @@ const ControllerMapper = ({
 export const ControlPanel = ({
   panelState,
   onStateChange,
+  controllerMappings = {},
+  onMappingChange,
 }: ControlPanelProps) => {
   const { controlChannel } = usePeerContext();
   const { currentPrompts, setCurrentPrompts } = usePrompt();
@@ -253,17 +271,18 @@ export const ControlPanel = ({
   useEffect(() => {
     const pollController = () => {
       const pads = navigator.getGamepads();
+      const currentMapping = panelState.nodeId && panelState.fieldName && controllerMappings[panelState.nodeId]?.[panelState.fieldName];
       const currentInput =
         panelState.nodeId && panelState.fieldName
           ? availableNodes[panelState.nodeId]?.inputs[panelState.fieldName]
           : null;
 
-      if (!currentInput?.controllerMapping) return;
+      if (!currentInput || !currentMapping) return;
 
       for (const pad of pads) {
         if (!pad) continue;
 
-        const mapping = currentInput.controllerMapping;
+        const mapping = currentMapping;
         const min = currentInput.min ?? 0;
         const max = currentInput.max ?? 1;
 
@@ -305,7 +324,7 @@ export const ControlPanel = ({
 
     const interval = setInterval(pollController, 50);
     return () => clearInterval(interval);
-  }, [panelState, availableNodes, isToggled, lastToggleValue]);
+  }, [panelState, availableNodes, isToggled, lastToggleValue, controllerMappings]);
 
   const handleValueChange = (newValue: string) => {
     const currentInput =
@@ -454,12 +473,8 @@ export const ControlPanel = ({
   };
 
   const handleMappingChange = (mapping: ControllerMapping) => {
-    if (panelState.nodeId && panelState.fieldName) {
-      const updatedNodes = { ...availableNodes };
-      updatedNodes[panelState.nodeId].inputs[
-        panelState.fieldName
-      ].controllerMapping = mapping;
-      setAvailableNodes(updatedNodes);
+    if (panelState.nodeId && panelState.fieldName && onMappingChange) {
+      onMappingChange(panelState.nodeId, panelState.fieldName, mapping);
     }
   };
 
@@ -529,6 +544,9 @@ export const ControlPanel = ({
                 input={
                   availableNodes[panelState.nodeId].inputs[panelState.fieldName]
                 }
+                nodeId={panelState.nodeId}
+                fieldName={panelState.fieldName}
+                controllerMapping={controllerMappings[panelState.nodeId]?.[panelState.fieldName]}
                 onMappingChange={handleMappingChange}
               />
             </>

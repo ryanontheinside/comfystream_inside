@@ -1,16 +1,29 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { ControlPanel } from "./control-panel";
 import { Button } from "./ui/button";
 import { Drawer, DrawerContent, DrawerTitle } from "./ui/drawer";
 import { Settings } from "lucide-react";
 import { Plus } from "lucide-react"; // Import Plus icon for minimal add button
 
+interface ControllerMapping {
+  inputIndex: number;
+  isAxis: boolean;
+  multiplier?: number;
+}
+
+interface NodeMappings {
+  [nodeId: string]: {
+    [fieldName: string]: ControllerMapping;
+  };
+}
+
 export const ControlPanelsContainer = () => {
   const [panels, setPanels] = useState<number[]>([0]); // Start with one panel
   const [nextPanelId, setNextPanelId] = useState(1);
   const [isOpen, setIsOpen] = useState(false);
+  const [controllerMappings, setControllerMappings] = useState<NodeMappings>({});
   const [panelStates, setPanelStates] = useState<
     Record<
       number,
@@ -29,6 +42,23 @@ export const ControlPanelsContainer = () => {
       isAutoUpdateEnabled: false,
     },
   });
+
+  // Load controller mappings from localStorage on component mount
+  useEffect(() => {
+    const savedMappings = localStorage.getItem('controllerMappings');
+    if (savedMappings) {
+      try {
+        setControllerMappings(JSON.parse(savedMappings));
+      } catch (error) {
+        console.error('Failed to parse saved controller mappings:', error);
+      }
+    }
+  }, []);
+
+  // Save controller mappings to localStorage whenever they change
+  useEffect(() => {
+    localStorage.setItem('controllerMappings', JSON.stringify(controllerMappings));
+  }, [controllerMappings]);
 
   const addPanel = () => {
     const newId = nextPanelId;
@@ -65,6 +95,21 @@ export const ControlPanelsContainer = () => {
         ...state,
       },
     }));
+  };
+
+  const updateControllerMapping = (
+    nodeId: string,
+    fieldName: string,
+    mapping: ControllerMapping
+  ) => {
+    setControllerMappings(prev => {
+      const newMappings = { ...prev };
+      if (!newMappings[nodeId]) {
+        newMappings[nodeId] = {};
+      }
+      newMappings[nodeId][fieldName] = mapping;
+      return newMappings;
+    });
   };
 
   return (
@@ -158,6 +203,8 @@ export const ControlPanelsContainer = () => {
                       <ControlPanel
                         panelState={panelStates[id]}
                         onStateChange={(state) => updatePanelState(id, state)}
+                        controllerMappings={controllerMappings}
+                        onMappingChange={updateControllerMapping}
                       />
                     </div>
                   </div>
