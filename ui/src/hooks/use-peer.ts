@@ -35,6 +35,7 @@ export function usePeer(props: PeerProps): Peer {
             endpoint: url,
             prompts: prompts,
             offer,
+            resolution: props.resolution,
           }),
         });
 
@@ -52,7 +53,7 @@ export function usePeer(props: PeerProps): Peer {
         throw error;
       }
     },
-    [prompts],
+    [prompts, props.resolution],
   );
 
   const handleConnectionStateChange = useCallback(

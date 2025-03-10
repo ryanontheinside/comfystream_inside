@@ -131,7 +131,16 @@ async def offer(request):
 
     params = await request.json()
 
+    # Set prompts from the request
     await pipeline.set_prompts(params["prompts"])
+    
+    # Update resolution if provided in the request
+    if "resolution" in params and "width" in params["resolution"] and "height" in params["resolution"]:
+        width = params["resolution"]["width"]
+        height = params["resolution"]["height"]
+        pipeline.width = width
+        pipeline.height = height
+        logger.info(f"[Server] Setting initial resolution to {width}x{height}")
 
     offer_params = params["offer"]
     offer = RTCSessionDescription(sdp=offer_params["sdp"], type=offer_params["type"])
