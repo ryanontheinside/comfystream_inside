@@ -23,8 +23,7 @@ class Pipeline:
     async def warm_video(self):
         dummy_frame = av.VideoFrame()
         dummy_frame.side_data.input = torch.randn(1, self.height, self.width, 3)
-        
-        logger.info(f"[Pipeline] Warming up video with resolution {self.width}x{self.height}")
+
         for _ in range(WARMUP_RUNS):
             self.client.put_video_input(dummy_frame)
             await self.client.get_video_output()
