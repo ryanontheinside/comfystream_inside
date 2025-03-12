@@ -13,6 +13,11 @@ interface ControllerMapping {
   inputIndex: number;
   isAxis: boolean;
   multiplier?: number;
+  usePromptList?: boolean;  // Whether to use the hard-coded prompt list
+  promptIndex?: number;     // Current index in the prompt list
+  useDpad?: boolean;        // Whether to use D-pad for increment/decrement
+  dpadMode?: 'updown' | 'leftright'; // Which D-pad axis to use
+  incrementValue?: number;  // Value to increment/decrement by
 }
 
 interface NodeMappings {
@@ -31,6 +36,19 @@ export const ControlPanelsContainer = () => {
   const [availableNodes, setAvailableNodes] = useState<Record<string, any>>({});
   const [isToggled, setIsToggled] = useState<Record<string, Record<string, boolean>>>({});
   const [lastToggleValues, setLastToggleValues] = useState<Record<string, Record<string, string>>>({});
+  
+  // Add state for prompt list management
+  const [promptList, setPromptList] = useState<string[]>([
+    "an abstract masterpiece trippy flowing orbs",
+    "Beautiful landscape with mountains and lakes",
+    "Portrait of a person in cyberpunk style",
+    "Futuristic city with flying cars",
+    "Fantasy castle with dragons",
+    "Steampunk machinery with gears and pipes"
+  ]);
+  const [isPromptListOpen, setIsPromptListOpen] = useState(false);
+  const [newPrompt, setNewPrompt] = useState("");
+  
   const lastSentValueRef = useRef<{
     nodeId: string;
     fieldName: string;
@@ -54,6 +72,28 @@ export const ControlPanelsContainer = () => {
       value: "0",
       isAutoUpdateEnabled: false,
     },
+  });
+
+  // Add reference for trigger states
+  const triggerStatesRef = useRef<{
+    leftPressed: Record<string, Record<string, boolean>>;
+    rightPressed: Record<string, Record<string, boolean>>;
+  }>({
+    leftPressed: {},
+    rightPressed: {}
+  });
+
+  // Add reference for D-pad button states
+  const dpadStatesRef = useRef<{
+    up: Record<string, Record<string, boolean>>;
+    down: Record<string, Record<string, boolean>>;
+    left: Record<string, Record<string, boolean>>;
+    right: Record<string, Record<string, boolean>>;
+  }>({
+    up: {},
+    down: {},
+    left: {},
+    right: {}
   });
 
   // Load controller mappings from localStorage on component mount
@@ -111,6 +151,22 @@ export const ControlPanelsContainer = () => {
     }
   }, [controlChannel]);
 
+  // Add useEffect to load and save the promptList
+  useEffect(() => {
+    const savedPromptList = localStorage.getItem('promptList');
+    if (savedPromptList) {
+      try {
+        setPromptList(JSON.parse(savedPromptList));
+      } catch (error) {
+        console.error('Failed to parse saved prompt list:', error);
+      }
+    }
+  }, []);
+  
+  useEffect(() => {
+    localStorage.setItem('promptList', JSON.stringify(promptList));
+  }, [promptList]);
+
   // Controller polling logic that runs even when the panel is closed
   useEffect(() => {
     const pollController = () => {
@@ -118,7 +174,7 @@ export const ControlPanelsContainer = () => {
       
       // For each active panel
       Object.values(panelStates).forEach(panelState => {
-        if (!panelState.isAutoUpdateEnabled || !panelState.nodeId || !panelState.fieldName) {
+        if (!panelState.nodeId || !panelState.fieldName) {
           return;
         }
         
@@ -131,6 +187,160 @@ export const ControlPanelsContainer = () => {
         
         for (const pad of pads) {
           if (!pad) continue;
+          
+          // Handle D-pad for numeric inputs
+          if (currentMapping.useDpad && 
+              (currentInput.type?.toLowerCase() === "number" || 
+               currentInput.type?.toLowerCase() === "float" || 
+               currentInput.type?.toLowerCase() === "int")) {
+            
+            // Initialize D-pad state objects if needed
+            if (!dpadStatesRef.current.up[panelState.nodeId]) {
+              dpadStatesRef.current.up[panelState.nodeId] = {};
+              dpadStatesRef.current.down[panelState.nodeId] = {};
+              dpadStatesRef.current.left[panelState.nodeId] = {};
+              dpadStatesRef.current.right[panelState.nodeId] = {};
+            }
+            
+            // D-pad button indices: 12 (up), 13 (down), 14 (left), 15 (right)
+            const upButton = pad.buttons[12];
+            const downButton = pad.buttons[13];
+            const leftButton = pad.buttons[14];
+            const rightButton = pad.buttons[15];
+            
+            // Get current value
+            const currentValue = parseFloat(panelState.value) || 0;
+            const increment = currentMapping.incrementValue || 0.1;
+            
+            if (currentMapping.dpadMode === 'updown') {
+              // Handle up button
+              const upPressed = dpadStatesRef.current.up[panelState.nodeId][panelState.fieldName] || false;
+              if (upButton?.pressed && !upPressed) {
+                // Mark as pressed
+                dpadStatesRef.current.up[panelState.nodeId][panelState.fieldName] = true;
+                
+                // Increment value
+                const newValue = currentValue + increment;
+                const clampedValue = Math.min(newValue, currentInput.max ?? Infinity);
+                updateNodeValue(panelState.nodeId, panelState.fieldName, clampedValue.toString());
+              } else if (!upButton?.pressed && upPressed) {
+                dpadStatesRef.current.up[panelState.nodeId][panelState.fieldName] = false;
+              }
+              
+              // Handle down button
+              const downPressed = dpadStatesRef.current.down[panelState.nodeId][panelState.fieldName] || false;
+              if (downButton?.pressed && !downPressed) {
+                // Mark as pressed
+                dpadStatesRef.current.down[panelState.nodeId][panelState.fieldName] = true;
+                
+                // Decrement value
+                const newValue = currentValue - increment;
+                const clampedValue = Math.max(newValue, currentInput.min ?? -Infinity);
+                updateNodeValue(panelState.nodeId, panelState.fieldName, clampedValue.toString());
+              } else if (!downButton?.pressed && downPressed) {
+                dpadStatesRef.current.down[panelState.nodeId][panelState.fieldName] = false;
+              }
+            } else if (currentMapping.dpadMode === 'leftright') {
+              // Handle right button
+              const rightPressed = dpadStatesRef.current.right[panelState.nodeId][panelState.fieldName] || false;
+              if (rightButton?.pressed && !rightPressed) {
+                // Mark as pressed
+                dpadStatesRef.current.right[panelState.nodeId][panelState.fieldName] = true;
+                
+                // Increment value
+                const newValue = currentValue + increment;
+                const clampedValue = Math.min(newValue, currentInput.max ?? Infinity);
+                updateNodeValue(panelState.nodeId, panelState.fieldName, clampedValue.toString());
+              } else if (!rightButton?.pressed && rightPressed) {
+                dpadStatesRef.current.right[panelState.nodeId][panelState.fieldName] = false;
+              }
+              
+              // Handle left button
+              const leftPressed = dpadStatesRef.current.left[panelState.nodeId][panelState.fieldName] || false;
+              if (leftButton?.pressed && !leftPressed) {
+                // Mark as pressed
+                dpadStatesRef.current.left[panelState.nodeId][panelState.fieldName] = true;
+                
+                // Decrement value
+                const newValue = currentValue - increment;
+                const clampedValue = Math.max(newValue, currentInput.min ?? -Infinity);
+                updateNodeValue(panelState.nodeId, panelState.fieldName, clampedValue.toString());
+              } else if (!leftButton?.pressed && leftPressed) {
+                dpadStatesRef.current.left[panelState.nodeId][panelState.fieldName] = false;
+              }
+            }
+          }
+          
+          // Handle prompt list cycling for string inputs
+          if (currentInput.type?.toLowerCase() === "string" && 
+              currentMapping.usePromptList) {
+            
+            // Initialize trigger state objects if needed
+            if (!triggerStatesRef.current.leftPressed[panelState.nodeId]) {
+              triggerStatesRef.current.leftPressed[panelState.nodeId] = {};
+              triggerStatesRef.current.rightPressed[panelState.nodeId] = {};
+            }
+            
+            // Only process if we have prompts to cycle through
+            if (promptList.length > 0) {
+              // Left trigger (usually button 6) - previous prompt
+              const leftTrigger = pad.buttons[6];
+              const leftPressed = triggerStatesRef.current.leftPressed[panelState.nodeId][panelState.fieldName] || false;
+              
+              if (leftTrigger.pressed && !leftPressed) {
+                // Mark as pressed
+                triggerStatesRef.current.leftPressed[panelState.nodeId][panelState.fieldName] = true;
+                
+                // Get current index, default to 0 if undefined
+                const currentIndex = currentMapping.promptIndex ?? 0;
+                const newIndex = (currentIndex - 1 + promptList.length) % promptList.length;
+                
+                // Update the mapping with new index
+                updateControllerMapping(
+                  panelState.nodeId,
+                  panelState.fieldName,
+                  { ...currentMapping, promptIndex: newIndex }
+                );
+                
+                // Update the value
+                const newValue = promptList[newIndex];
+                updateNodeValue(panelState.nodeId, panelState.fieldName, newValue);
+              } else if (!leftTrigger.pressed && leftPressed) {
+                triggerStatesRef.current.leftPressed[panelState.nodeId][panelState.fieldName] = false;
+              }
+              
+              // Right trigger (usually button 7) - next prompt
+              const rightTrigger = pad.buttons[7];
+              const rightPressed = triggerStatesRef.current.rightPressed[panelState.nodeId][panelState.fieldName] || false;
+              
+              if (rightTrigger.pressed && !rightPressed) {
+                // Mark as pressed
+                triggerStatesRef.current.rightPressed[panelState.nodeId][panelState.fieldName] = true;
+                
+                // Get current index, default to 0 if undefined
+                const currentIndex = currentMapping.promptIndex ?? 0;
+                const newIndex = (currentIndex + 1) % promptList.length;
+                
+                // Update the mapping with new index
+                updateControllerMapping(
+                  panelState.nodeId,
+                  panelState.fieldName,
+                  { ...currentMapping, promptIndex: newIndex }
+                );
+                
+                // Update the value
+                const newValue = promptList[newIndex];
+                updateNodeValue(panelState.nodeId, panelState.fieldName, newValue);
+              } else if (!rightTrigger.pressed && rightPressed) {
+                triggerStatesRef.current.rightPressed[panelState.nodeId][panelState.fieldName] = false;
+              }
+            }
+          }
+          
+          // Skip non-promptList controls if auto-update is disabled
+          if (!panelState.isAutoUpdateEnabled && !currentMapping.usePromptList) {
+            continue;
+          }
           
           const min = currentInput.min ?? 0;
           const max = currentInput.max ?? 1;
@@ -196,7 +406,7 @@ export const ControlPanelsContainer = () => {
     
     const interval = setInterval(pollController, 50);
     return () => clearInterval(interval);
-  }, [panelStates, controllerMappings, availableNodes, isToggled, lastToggleValues, controlChannel]);
+  }, [panelStates, controllerMappings, availableNodes, isToggled, lastToggleValues, controlChannel, promptList]);
   
   // Function to update node value and send to server
   const updateNodeValue = (nodeId: string, fieldName: string, value: string) => {
@@ -267,6 +477,30 @@ export const ControlPanelsContainer = () => {
   };
 
   const removePanel = (id: number) => {
+    // Get the panel's nodeId and fieldName before removing
+    const panelToRemove = panelStates[id];
+    
+    // If this panel has a controller mapping, remove it
+    if (panelToRemove.nodeId && panelToRemove.fieldName) {
+      // Check if this node/field has a controller mapping
+      if (controllerMappings[panelToRemove.nodeId]?.[panelToRemove.fieldName]) {
+        // Clone the current mappings
+        const newMappings = { ...controllerMappings };
+        
+        // Delete the mapping for this field
+        delete newMappings[panelToRemove.nodeId][panelToRemove.fieldName];
+        
+        // If the node now has no mappings, remove the node entry entirely
+        if (Object.keys(newMappings[panelToRemove.nodeId]).length === 0) {
+          delete newMappings[panelToRemove.nodeId];
+        }
+        
+        // Update controller mappings state
+        setControllerMappings(newMappings);
+      }
+    }
+    
+    // Remove panel from panels list and panel states
     setPanels(panels.filter((panelId) => panelId !== id));
     setPanelStates((prev) => {
       const newState = { ...prev };
@@ -303,6 +537,18 @@ export const ControlPanelsContainer = () => {
     });
   };
 
+  // Add new functions to manage the prompt list
+  const addPrompt = () => {
+    if (newPrompt.trim() !== "") {
+      setPromptList([...promptList, newPrompt.trim()]);
+      setNewPrompt("");
+    }
+  };
+  
+  const removePrompt = (index: number) => {
+    setPromptList(promptList.filter((_, i) => i !== index));
+  };
+
   return (
     <>
       <Button
@@ -312,7 +558,77 @@ export const ControlPanelsContainer = () => {
       >
         <Settings className="h-6 w-6" />
       </Button>
-
+      
+      {/* Prompt List Button */}
+      <Button
+        onClick={() => setIsPromptListOpen(true)}
+        className="fixed bottom-4 right-20 h-12 px-4 shadow-lg hover:shadow-xl transition-shadow"
+        variant="default"
+      >
+        Manage Prompts
+      </Button>
+      
+      {/* Prompt List Editor Drawer */}
+      <Drawer
+        open={isPromptListOpen}
+        onOpenChange={setIsPromptListOpen}
+        direction="bottom"
+        shouldScaleBackground={false}
+      >
+        <DrawerContent
+          className="max-h-[50vh] min-h-[200px] bg-background/90 backdrop-blur-md border-t shadow-lg"
+        >
+          <DrawerTitle className="px-4 pt-4 font-semibold text-lg">Manage Prompt List</DrawerTitle>
+          
+          <div className="p-4">
+            <div className="mb-4">
+              <div className="flex gap-2 mb-3">
+                <input
+                  type="text"
+                  value={newPrompt}
+                  onChange={(e) => setNewPrompt(e.target.value)}
+                  placeholder="Enter a new prompt..."
+                  className="flex-1 p-2 border rounded"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') addPrompt();
+                  }}
+                />
+                <Button onClick={addPrompt}>Add</Button>
+              </div>
+              
+              <p className="text-sm text-gray-500 mb-2">
+                {promptList.length} prompt{promptList.length !== 1 ? 's' : ''} available for controller trigger cycling
+              </p>
+            </div>
+            
+            <div className="bg-white rounded border overflow-y-auto max-h-[30vh]">
+              {promptList.length === 0 ? (
+                <div className="p-4 text-center text-gray-500">
+                  No prompts added yet. Add some prompts above.
+                </div>
+              ) : (
+                <ul className="divide-y">
+                  {promptList.map((prompt, index) => (
+                    <li key={index} className="p-3 flex justify-between items-center">
+                      <span className="flex-1 mr-2">{prompt}</span>
+                      <div className="flex gap-2">
+                        <Button
+                          onClick={() => removePrompt(index)}
+                          variant="destructive"
+                          size="sm"
+                        >
+                          Remove
+                        </Button>
+                      </div>
+                    </li>
+                  ))}
+                </ul>
+              )}
+            </div>
+          </div>
+        </DrawerContent>
+      </Drawer>
+      
       <Drawer
         open={isOpen}
         onOpenChange={setIsOpen}

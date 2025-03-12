@@ -4,12 +4,36 @@ import React, { useState, useEffect } from "react";
 import { usePeerContext } from "@/context/peer-context";
 import { usePrompt } from "./settings";
 
+// Add TypeScript declaration for triggerStates if we need it for the parent component
+declare global {
+  interface Window {
+    triggerStates?: {
+      leftPressed: boolean;
+      rightPressed: boolean;
+    };
+  }
+}
+
 type InputValue = string | number | boolean;
+
+// Hard-coded list of prompts to cycle through
+const PROMPT_LIST = [
+  "Beautiful landscape with mountains and lakes",
+  "Portrait of a person in cyberpunk style",
+  "Futuristic city with flying cars",
+  "Fantasy castle with dragons",
+  "Steampunk machinery with gears and pipes"
+];
 
 interface ControllerMapping {
   inputIndex: number;        // Unified index for buttons or axes
   isAxis: boolean;          // Whether this is an axis or button
   multiplier?: number;      // For scaling inputs
+  usePromptList?: boolean;  // Whether to use the hard-coded prompt list
+  promptIndex?: number;     // Current index in the prompt list
+  useDpad?: boolean;        // Whether to use D-pad for increment/decrement
+  dpadMode?: 'updown' | 'leftright'; // Which D-pad axis to use
+  incrementValue?: number;  // Value to increment/decrement by
 }
 
 interface InputInfo {
@@ -145,7 +169,7 @@ const ControllerMapper = ({
   const [gamepads, setGamepads] = useState<Gamepad[]>([]);
   const [isMapping, setIsMapping] = useState(false);
   const [detectedInput, setDetectedInput] = useState<string>("");
-
+  
   useEffect(() => {
     const updateGamepads = () => {
       const pads = navigator.getGamepads();
@@ -175,7 +199,39 @@ const ControllerMapper = ({
         pad.buttons.forEach((button, index) => {
           if (button.value > 0.1) {
             setDetectedInput(`Button ${index}`);
-            onMappingChange({ inputIndex: index, isAxis: false });
+            
+            // Auto-detect D-pad buttons and provide appropriate mapping for numeric inputs
+            if ((input.type.toLowerCase() === "number" || 
+                input.type.toLowerCase() === "float" || 
+                input.type.toLowerCase() === "int") && 
+                (index >= 12 && index <= 15)) { // D-pad buttons are typically 12-15
+              
+              // Create D-pad mapping based on which button was pressed
+              let dpadMapping: ControllerMapping = {
+                inputIndex: index,
+                isAxis: false,
+                useDpad: true,
+                incrementValue: input.type.toLowerCase() === "int" ? 1 : 0.1
+              };
+              
+              // Set the mode based on which button was pressed
+              if (index === 12 || index === 13) { // Up/Down
+                dpadMapping.dpadMode = 'updown';
+              } else { // Left/Right
+                dpadMapping.dpadMode = 'leftright';
+              }
+              
+              onMappingChange(dpadMapping);
+            } else {
+              // Standard button mapping
+              onMappingChange({ 
+                inputIndex: index, 
+                isAxis: false,
+                usePromptList: controllerMapping?.usePromptList,
+                promptIndex: controllerMapping?.promptIndex || 0
+              });
+            }
+            
             setIsMapping(false);
           }
         });
@@ -184,7 +240,13 @@ const ControllerMapper = ({
         pad.axes.forEach((axis, index) => {
           if (Math.abs(axis) > 0.2) {
             setDetectedInput(`Axis ${index}`);
-            onMappingChange({ inputIndex: index, isAxis: true, multiplier: 1 });
+            onMappingChange({ 
+              inputIndex: index, 
+              isAxis: true, 
+              multiplier: 1,
+              usePromptList: controllerMapping?.usePromptList,
+              promptIndex: controllerMapping?.promptIndex || 0
+            });
             setIsMapping(false);
           }
         });
@@ -193,8 +255,20 @@ const ControllerMapper = ({
 
     const interval = setInterval(checkInputs, 50);
     return () => clearInterval(interval);
-  }, [isMapping, onMappingChange]);
+  }, [isMapping, onMappingChange, controllerMapping, input]);
 
+  // Toggle prompt list mapping
+  const togglePromptListMapping = () => {
+    const currentMapping = controllerMapping || { inputIndex: 0, isAxis: false };
+    const usePromptList = !currentMapping.usePromptList;
+    
+    onMappingChange({
+      ...currentMapping,
+      usePromptList,
+      promptIndex: 0
+    });
+  };
+  
   return (
     <div className="flex flex-col gap-2">
       <button
@@ -203,13 +277,53 @@ const ControllerMapper = ({
       >
         {isMapping ? "Mapping..." : "Map Controller"}
       </button>
+      
+      {/* Only show prompt list button for string inputs */}
+      {input.type.toLowerCase() === "string" && (
+        <button
+          onClick={togglePromptListMapping}
+          className={`p-2 rounded ${controllerMapping?.usePromptList ? "bg-green-500" : "bg-purple-500"} text-white`}
+        >
+          {controllerMapping?.usePromptList ? "Unmap from Prompt List" : "Map to Prompt List"}
+        </button>
+      )}
+      
+      {/* Remove the D-pad UI controls - we'll auto-detect D-pad buttons instead */}
+      
       {controllerMapping && (
         <div className="text-sm">
-          Mapped to: {controllerMapping.isAxis 
-            ? `Axis ${controllerMapping.inputIndex}`
-            : `Button ${controllerMapping.inputIndex}`}
+          {!controllerMapping.useDpad && (
+            <div>
+              Mapped to: {controllerMapping.isAxis 
+                ? `Axis ${controllerMapping.inputIndex}`
+                : `Button ${controllerMapping.inputIndex}`}
+            </div>
+          )}
+          
+          {controllerMapping.useDpad && (
+            <div>
+              Mapped to: D-pad {controllerMapping.dpadMode === 'updown' 
+                ? (controllerMapping.inputIndex === 12 ? 'Up' : 'Down') 
+                : (controllerMapping.inputIndex === 14 ? 'Left' : 'Right')
+              }
+              <div className="mt-1 text-xs text-gray-500">
+                {controllerMapping.dpadMode === 'updown' 
+                  ? 'Use Up/Down to increment/decrement' 
+                  : 'Use Left/Right to decrement/increment'}
+                <br/>Increment by {controllerMapping.incrementValue}
+              </div>
+            </div>
+          )}
+          
+          {controllerMapping.usePromptList && (
+            <div className="mt-1">
+              <span className="font-bold">Using prompt list</span>
+              <span className="block text-xs text-gray-500">Use L/R triggers to cycle</span>
+            </div>
+          )}
         </div>
       )}
+      
       {gamepads.length === 0 && (
         <div className="text-sm text-red-500">No controllers detected</div>
       )}
