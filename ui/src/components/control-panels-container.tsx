@@ -417,9 +417,11 @@ export const ControlPanelsContainer = () => {
       }
     });
     
-    // Store last toggle value if this is a button
+    // Get mapping to check if this is a D-pad control
     const mapping = controllerMappings[nodeId]?.[fieldName];
-    if (mapping && !mapping.isAxis && value !== "0") {
+    
+    // Only store last toggle value if this is a button toggle (not D-pad)
+    if (mapping && !mapping.isAxis && !mapping.useDpad && value !== "0") {
       setLastToggleValues(prev => ({
         ...prev,
         [nodeId]: {
