@@ -51,6 +51,11 @@ export interface StreamConfig {
     width: number;
     height: number;
   };
+  batchProcessing: {
+    batchSize: number;
+    bufferThreshold: number;
+    maxQueueSize: number;
+  };
 }
 
 interface AVDevice {
@@ -67,6 +72,11 @@ export const DEFAULT_CONFIG: StreamConfig = {
   resolution: {
     width: 512,
     height: 512
+  },
+  batchProcessing: {
+    batchSize: 1,
+    bufferThreshold: 2,
+    maxQueueSize: 5
   },
 };
 
@@ -155,6 +165,11 @@ const formSchema = z.object({
     height: z.coerce.number().refine(val => val % 64 === 0 && val >= 64 && val <= 2048, {
       message: "Height must be a multiple of 64 (between 64 and 2048)"
     })
+  }),
+  batchProcessing: z.object({
+    batchSize: z.coerce.number().min(1).max(16),
+    bufferThreshold: z.coerce.number().min(1).max(10),
+    maxQueueSize: z.coerce.number().min(2).max(20)
   })
 });
 
@@ -285,6 +300,7 @@ function ConfigForm({ config, onSubmit }: ConfigFormProps) {
       selectedVideoDeviceId: selectedVideoDevice || "none",
       selectedAudioDeviceId: selectedAudioDevice || "none",
       resolution: values.resolution || DEFAULT_CONFIG.resolution,
+      batchProcessing: values.batchProcessing || DEFAULT_CONFIG.batchProcessing,
     });
   };
 
@@ -487,6 +503,86 @@ function ConfigForm({ config, onSubmit }: ConfigFormProps) {
             multiple
             onChange={handlePromptsChange}
             required={true}
+          />
+        </div>
+
+        <div className="mt-6 mb-4">
+          <Label className="text-lg font-semibold">Batch Processing</Label>
+          <p className="text-sm text-gray-500 mb-2">Configure how frames are batched for processing</p>
+          
+          <FormField
+            control={form.control}
+            name="batchProcessing.batchSize"
+            render={({ field }) => (
+              <FormItem className="mt-4">
+                <FormLabel>Batch Size</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="16"
+                    step="1"
+                    {...field}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value);
+                      field.onChange(value);
+                    }}
+                  />
+                </FormControl>
+                <p className="text-xs text-gray-500">Number of frames to process together (1-16)</p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="batchProcessing.bufferThreshold"
+            render={({ field }) => (
+              <FormItem className="mt-4">
+                <FormLabel>Buffer Threshold</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    min="1"
+                    max="10"
+                    step="1"
+                    {...field}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value);
+                      field.onChange(value);
+                    }}
+                  />
+                </FormControl>
+                <p className="text-xs text-gray-500">Minimum batches to collect before processing (1-10)</p>
+                <FormMessage />
+              </FormItem>
+            )}
+          />
+
+          <FormField
+            control={form.control}
+            name="batchProcessing.maxQueueSize"
+            render={({ field }) => (
+              <FormItem className="mt-4">
+                <FormLabel>Max Queue Size</FormLabel>
+                <FormControl>
+                  <Input
+                    type="number"
+                    min="2"
+                    max="20"
+                    step="1"
+                    {...field}
+                    onChange={(e) => {
+                      const value = parseInt(e.target.value);
+                      field.onChange(value);
+                    }}
+                  />
+                </FormControl>
+                <p className="text-xs text-gray-500">Maximum number of batches to buffer (2-20)</p>
+                <FormMessage />
+              </FormItem>
+            )}
           />
         </div>
 

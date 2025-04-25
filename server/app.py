@@ -206,6 +206,17 @@ async def offer(request):
 
     params = await request.json()
 
+    # Configure batch processing if parameters are provided
+    if "batchProcessing" in params:
+        batch_config = params["batchProcessing"]
+        batch_size = batch_config.get("batchSize", 1)
+        buffer_threshold = batch_config.get("bufferThreshold", 2)
+        max_queue_size = batch_config.get("maxQueueSize", 5)
+        
+        # Update pipeline batch processing configuration
+        pipeline.configure_batch_processing(batch_size, buffer_threshold, max_queue_size)
+        logger.info(f"Configured batch processing: size={batch_size}, threshold={buffer_threshold}, max_queue={max_queue_size}")
+
     await pipeline.set_prompts(params["prompts"])
 
     offer_params = params["offer"]
@@ -376,6 +387,9 @@ async def on_startup(app: web.Application):
         disable_cuda_malloc=True, 
         gpu_only=True, 
         preview_method='none',
+        batch_size=app.get("batch_size", 1),
+        buffer_threshold=app.get("buffer_threshold", 2),
+        max_queue_size=app.get("max_queue_size", 5),
         comfyui_inference_log_level=app.get("comfui_inference_log_level", None),
     )
     app["pcs"] = set()
@@ -404,6 +418,24 @@ if __name__ == "__main__":
         default="INFO",
         choices=["DEBUG", "INFO", "WARNING", "ERROR", "CRITICAL"],
         help="Set the logging level",
+    )
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=1,
+        help="Number of frames to process in a single batch"
+    )
+    parser.add_argument(
+        "--buffer-threshold",
+        type=int,
+        default=2,
+        help="Minimum number of batches to collect before processing"
+    )
+    parser.add_argument(
+        "--max-queue-size",
+        type=int,
+        default=5,
+        help="Maximum number of batches to store in the queue"
     )
     parser.add_argument(
         "--monitor",
@@ -440,6 +472,11 @@ if __name__ == "__main__":
     app = web.Application()
     app["media_ports"] = args.media_ports.split(",") if args.media_ports else None
     app["workspace"] = args.workspace
+    
+    # Store batch processing settings in app context
+    app["batch_size"] = args.batch_size
+    app["buffer_threshold"] = args.buffer_threshold
+    app["max_queue_size"] = args.max_queue_size
 
     app.on_startup.append(on_startup)
     app.on_shutdown.append(on_shutdown)

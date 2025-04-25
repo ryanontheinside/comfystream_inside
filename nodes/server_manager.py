@@ -136,7 +136,8 @@ class LocalComfyStreamServer(ComfyStreamServerBase):
         for line in iter(pipe.readline, b''):
             logging.log(level, line.decode().strip())
 
-    async def start(self, port=None, host=None):
+    async def start(self, port=None, host=None, 
+                   batch_size=1, buffer_threshold=2, max_queue_size=5):
         """Start the ComfyStream server"""
         if self.is_running:
             logging.info("Server is already running")
@@ -160,7 +161,10 @@ class LocalComfyStreamServer(ComfyStreamServerBase):
             cmd = [sys.executable, "-u", str(server_script),
                   "--port", str(self.port),
                   "--host", str(self.host),
-                  "--workspace", str(comfyui_workspace)]
+                  "--workspace", str(comfyui_workspace),
+                  "--batch-size", str(batch_size),
+                  "--buffer-threshold", str(buffer_threshold),
+                  "--max-queue-size", str(max_queue_size)]
             
             logging.info(f"Starting server with command: {' '.join(cmd)}")
             
@@ -248,3 +252,44 @@ class LocalComfyStreamServer(ComfyStreamServerBase):
                 logging.error(f"Error cleaning up server process: {str(e)}")
             self.process = None
             self.is_running = False
+
+class ComfyStreamNode:
+    """ComfyUI node for starting and stopping the ComfyStream server"""
+    
+    @classmethod
+    def INPUT_TYPES(s):
+        return {
+            "required": {
+                "server": (["local"],),
+            },
+            "optional": {
+                "port": ("INT", {"default": 8889, "min": 1024, "max": 65535}),
+                "host": ("STRING", {"default": "0.0.0.0"}),
+                # Add batch processing parameters
+                "batch_size": ("INT", {"default": 1, "min": 1, "max": 16}),
+                "buffer_threshold": ("INT", {"default": 2, "min": 1, "max": 10}),
+                "max_queue_size": ("INT", {"default": 5, "min": 2, "max": 20}),
+            }
+        }
+
+    def execute(self, server, port=None, host=None, 
+               batch_size=1, buffer_threshold=2, max_queue_size=5):
+        asyncio.run(self.async_execute(server, port, host, 
+                    batch_size, buffer_threshold, max_queue_size))
+        return {"server": server, "status": self.server_obj.get_status()}
+    
+    async def async_execute(self, server_type, port=None, host=None,
+                           batch_size=1, buffer_threshold=2, max_queue_size=5):
+        """Async implementation of execute"""
+        if self.server_obj and self.server_obj.is_running:
+            logging.info("Server is already running, stopping first")
+            await self.server_obj.stop()
+            
+        if server_type == "local":
+            self.server_obj = local_server
+        
+        # Start the server with all parameters
+        await self.server_obj.start(port=port, host=host, 
+                                   batch_size=batch_size, 
+                                   buffer_threshold=buffer_threshold, 
+                                   max_queue_size=max_queue_size)

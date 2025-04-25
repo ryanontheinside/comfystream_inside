@@ -3,9 +3,11 @@ import torch
 import numpy as np
 import asyncio
 import logging
+import time
 
 from typing import Any, Dict, Union, List
 from comfystream.client import ComfyStreamClient
+from comfystream import tensor_cache
 from utils import temporary_log_level
 
 WARMUP_RUNS = 5
@@ -14,11 +16,17 @@ logger = logging.getLogger(__name__)
 
 
 class Pipeline:
-    def __init__(self, width=512, height=512, comfyui_inference_log_level: int = None, **kwargs):
+    def __init__(self, width=512, height=512, comfyui_inference_log_level: int = None, 
+                 batch_size=1, buffer_threshold=2, max_queue_size=5, **kwargs):
         """Initialize the pipeline with the given configuration.
         Args:
+            width: Frame width
+            height: Frame height
             comfyui_inference_log_level: The logging level for ComfyUI inference.
                 Defaults to None, using the global ComfyUI log level.
+            batch_size: Number of frames to process in a single batch
+            buffer_threshold: Minimum number of batches to collect before processing
+            max_queue_size: Maximum number of batches to store in the queue
             **kwargs: Additional arguments to pass to the ComfyStreamClient
         """
         self.client = ComfyStreamClient(**kwargs)
@@ -31,6 +39,24 @@ class Pipeline:
         self.processed_audio_buffer = np.array([], dtype=np.int16)
 
         self._comfyui_inference_log_level = comfyui_inference_log_level
+        
+        # Configure batch processing
+        self.configure_batch_processing(batch_size, buffer_threshold, max_queue_size)
+        
+        # Frame rate monitoring
+        self.last_frame_time = time.time()
+        self.frame_count = 0
+
+    def configure_batch_processing(self, batch_size, buffer_threshold, max_queue_size):
+        """Configure batch processing parameters"""
+        self.batch_size = batch_size
+        self.buffer_threshold = buffer_threshold
+        self.max_queue_size = max_queue_size
+        
+        # Update tensor cache config
+        tensor_cache.configure_batch_processing(batch_size, buffer_threshold, max_queue_size)
+        
+        logger.info(f"Configured batch processing: batch_size={batch_size}, buffer_threshold={buffer_threshold}, max_queue_size={max_queue_size}")
 
     async def warm_video(self):
         # Create dummy frame with the CURRENT resolution settings (which might have been updated via control channel)
@@ -65,10 +91,35 @@ class Pipeline:
             await self.client.update_prompts([prompts])
 
     async def put_video_frame(self, frame: av.VideoFrame):
+        # Preprocess the frame
         frame.side_data.input = self.video_preprocess(frame)
         frame.side_data.skipped = True
+        
+        # Update frame rate metrics
+        now = time.time()
+        elapsed = now - self.last_frame_time
+        self.last_frame_time = now
+        self.frame_count += 1
+        
+        # Update input rate metric after initial frames
+        if self.frame_count > 5 and elapsed > 0:
+            input_rate = 1.0 / elapsed  # frames per second
+            tensor_cache.update_buffer_metrics(input_rate=input_rate)
+        
+        # Send frame to client and add to queue
         self.client.put_video_input(frame)
         await self.video_incoming_frames.put(frame)
+        
+        # Monitor buffer health and provide feedback
+        if self.frame_count % 30 == 0:  # Log every 30 frames
+            metrics = tensor_cache.buffer_metrics
+            logger.info(f"Buffer metrics: fill={metrics['fill_level']:.2f}, health={metrics['buffer_health']:.2f}")
+            
+            # Alert if buffer health is concerning
+            if metrics['buffer_health'] < 0.8 and metrics['fill_level'] > 0.8:
+                logger.warning("Buffer filling up faster than processing. Consider increasing batch size.")
+            elif metrics['buffer_health'] > 1.2 and metrics['fill_level'] < 0.3:
+                logger.info("Processing faster than input rate. Could decrease batch size if desired.")
 
     async def put_audio_frame(self, frame: av.AudioFrame):
         frame.side_data.input = self.audio_preprocess(frame)
@@ -126,6 +177,16 @@ class Pipeline:
         """Get information about all nodes in the current prompt including metadata."""
         nodes_info = await self.client.get_available_nodes()
         return nodes_info
+    
+    def get_buffer_status(self) -> Dict[str, Any]:
+        """Get current buffer status information."""
+        return {
+            "batch_size": self.batch_size,
+            "buffer_threshold": self.buffer_threshold,
+            "max_queue_size": self.max_queue_size,
+            "is_buffer_ready": tensor_cache.is_buffer_ready,
+            "metrics": tensor_cache.buffer_metrics,
+        }
     
     async def cleanup(self):
         await self.client.cleanup()
